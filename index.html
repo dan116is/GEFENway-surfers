@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>גפן ווי סרפרס</title>
+<meta name="description" content="משחק ריצה עדין ומותאם אישית לגפן, בן 4 — בלי הפסדים, בלי פרסומות, בלי קניות.">
+<meta name="theme-color" content="#0d1b3e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="גפן ווי">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="stage" aria-hidden="true"></canvas>
+
+<!-- ======================= טעינה ======================= -->
+<div class="screen show" id="scr-boot">
+  <div class="boot-logo" id="bootLogo"></div>
+  <div class="boot-title">גפן ווי סרפרס</div>
+  <div class="boot-sub">רגע אחד…</div>
+</div>
+
+<!-- ======================= היכרות ראשונה ======================= -->
+<div class="screen" id="scr-onboard">
+  <div class="sheet">
+    <h1>שלום! 👋</h1>
+    <p class="lead">בואו נכין את המשחק. אפשר לשנות הכל אחר כך.</p>
+
+    <label class="field">
+      <span>איך קוראים לשחקן?</span>
+      <input id="inpName" type="text" value="גפן" maxlength="12" autocomplete="off" enterkeyhint="done">
+    </label>
+
+    <div class="field">
+      <span>צבע אהוב</span>
+      <div class="swatches" id="colorPick"></div>
+    </div>
+
+    <div class="field">
+      <span>כמה זמן משחק כל פעם?</span>
+      <div class="chips" id="timePick"></div>
+      <p class="hint">כשהזמן נגמר השמש שוקעת לאט והדמות מגיעה לבית העץ — סוף רגוע, בלי לכבות באמצע.</p>
+    </div>
+
+    <button class="btn big" id="btnOnboardDone">יאללה, מתחילים!</button>
+  </div>
+</div>
+
+<!-- ======================= מסך הבית ======================= -->
+<div class="screen" id="scr-home">
+  <div class="home-top">
+    <div class="stars-pill"><span class="ico">⭐</span><span id="homeStars">0</span></div>
+    <button class="icon-btn" id="btnParent" aria-label="הגדרות הורים">
+      <span class="gear">⚙️</span>
+      <svg class="hold-ring" viewBox="0 0 44 44"><circle cx="22" cy="22" r="20"></circle></svg>
+    </button>
+  </div>
+
+  <div class="home-title">
+    <div class="home-hello" id="homeHello">גפן</div>
+    <div class="home-game">ווי סרפרס</div>
+  </div>
+
+  <div class="hero-slot"><canvas id="heroCanvas"></canvas></div>
+
+  <div class="home-actions">
+    <button class="btn play" id="btnPlay"><span>▶</span> שחק</button>
+    <button class="btn ghost" id="btnZoo">🐾 החברים שלי</button>
+  </div>
+  <div class="home-foot" id="homeFoot"></div>
+</div>
+
+<!-- ======================= HUD במשחק ======================= -->
+<div class="hud" id="hud">
+  <div class="hud-row">
+    <div class="stars-pill live"><span class="ico">⭐</span><span id="runStars">0</span></div>
+    <div class="track-pill" title="הדרך לבית העץ">
+      <div class="track-fill" id="trackFill"></div>
+      <span class="track-house">🏡</span>
+    </div>
+    <button class="icon-btn small" id="btnPause" aria-label="הפסקה">⏸</button>
+  </div>
+  <div class="prompt" id="prompt"></div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- כפתורי מגע גדולים -->
+<div class="touchpad" id="touchpad" aria-hidden="true">
+  <div class="tp tp-right" data-act="right"></div>
+  <div class="tp tp-jump"  data-act="jump"></div>
+  <div class="tp tp-left"  data-act="left"></div>
+</div>
+
+<!-- ======================= הפסקה ======================= -->
+<div class="screen dim" id="scr-pause">
+  <div class="sheet small">
+    <h1>הפסקה קטנה</h1>
+    <button class="btn big" id="btnResume">▶ ממשיכים</button>
+    <button class="btn ghost" id="btnQuit">🏡 חזרה הביתה</button>
+  </div>
+</div>
+
+<!-- ======================= סוף סשן ======================= -->
+<div class="screen" id="scr-end">
+  <div class="sheet">
+    <div class="end-emoji">🏡</div>
+    <h1 id="endTitle">הגענו לבית העץ!</h1>
+    <div class="end-stats">
+      <div class="stat"><b id="endStars">0</b><span>כוכבים</span></div>
+      <div class="stat"><b id="endDist">0</b><span>מטרים</span></div>
+      <div class="stat"><b id="endGates">0</b><span>שערים</span></div>
+    </div>
+    <div id="endUnlock" class="unlock"></div>
+    <button class="btn big" id="btnEndHome">מעולה! 🏡</button>
+    <button class="btn ghost" id="btnEndAgain">עוד סיבוב</button>
+  </div>
+</div>
+
+<!-- ======================= החברים (דמויות) ======================= -->
+<div class="screen" id="scr-zoo">
+  <div class="sheet wide">
+    <h1>החברים שלי</h1>
+    <p class="lead">אוספים כוכבים ופותחים חברים חדשים.</p>
+    <div class="zoo-grid" id="zooGrid"></div>
+    <button class="btn big" id="btnZooClose">סגור</button>
+  </div>
+</div>
+
+<!-- ======================= הגדרות הורים ======================= -->
+<div class="screen" id="scr-parent">
+  <div class="sheet wide">
+    <h1>הגדרות הורים</h1>
+
+    <label class="field">
+      <span>שם השחקן</span>
+      <input id="setName" type="text" maxlength="12" autocomplete="off">
+    </label>
+
+    <div class="field"><span>צבע אהוב</span><div class="swatches" id="setColor"></div></div>
+    <div class="field"><span>אורך סשן</span><div class="chips" id="setTime"></div></div>
+    <div class="field"><span>מהירות</span><div class="chips" id="setSpeed"></div></div>
+
+    <div class="field toggles">
+      <label class="tgl"><input type="checkbox" id="setSound"><span>צלילים</span></label>
+      <label class="tgl"><input type="checkbox" id="setVoice"><span>עידוד בקול</span></label>
+      <label class="tgl"><input type="checkbox" id="setGates"><span>שערי צבעים (לימוד)</span></label>
+      <label class="tgl"><input type="checkbox" id="setShake"><span>רעידות מסך</span></label>
+    </div>
+
+    <div class="parent-stats" id="parentStats"></div>
+
+    <button class="btn big" id="btnParentClose">שמור וסגור</button>
+    <button class="btn danger ghost" id="btnReset">איפוס מלא</button>
+  </div>
+</div>
+
+<div id="fx"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
