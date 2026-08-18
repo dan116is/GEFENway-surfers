@@ -20,8 +20,12 @@ def read(*parts):
         return f.read()
 
 
+TOPLEVEL_RE = re.compile(r"^(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)", re.MULTILINE)
+
+
 def bundle_js():
     out = []
+    seen: dict[str, str] = {}
     for name in MODULES:
         src = read("js", f"{name}.js")
         src = IMPORT_RE.sub("", src)
@@ -30,6 +34,13 @@ def bundle_js():
             leftovers = [l for l in src.splitlines() if l.strip().startswith("export")]
             if leftovers:
                 raise SystemExit(f"{name}.js: לא הצלחתי להסיר את {leftovers}")
+        # כל המודולים מתמזגים לתחום אחד — שם כפול היה נשבר רק בזמן ריצה
+        for ident in TOPLEVEL_RE.findall(src):
+            if ident in seen:
+                raise SystemExit(
+                    f"התנגשות שמות: '{ident}' מוגדר גם ב-{seen[ident]}.js וגם ב-{name}.js")
+            seen[ident] = name
+
         out.append(f"/* ===== js/{name}.js ===== */\n{src.strip()}\n")
     return "(function(){\n'use strict';\n" + "\n".join(out) + "\n})();"
 
@@ -51,6 +62,8 @@ def main():
     icon = data_uri("icons/apple-touch-icon-180.png", "image/png")
 
     head = (
+        # מארחים מסוימים לא שולחים charset בכותרת ה-HTTP — בלי זה העברית נשברת
+        '<meta charset="utf-8">\n'
         "<title>גפן ווי סרפרס</title>\n"
         '<meta name="viewport" content="width=device-width, initial-scale=1, '
         'maximum-scale=1, user-scalable=no, viewport-fit=cover">\n'

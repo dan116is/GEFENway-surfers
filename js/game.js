@@ -3,7 +3,7 @@
 
 import { clamp, lerp, rand, randInt, pick, save, store, SPEEDS, QUALITY, buzz, COLORS, colorById } from './util.js';
 import { sfx, say } from './audio.js';
-import { drawCharacter } from './characters.js';
+import { drawCharacter, DEFAULT_OUTFIT } from './characters.js';
 import {
   makeView, project, laneX, LANE_W, PLAYER_Z, Z_FAR,
   skyPalette, drawSky, drawGround, drawSideScenery,
@@ -64,9 +64,9 @@ export const Game = {
       מתעלמים מהשניות הראשונות — שם תמיד יש גמגום התחלתי. */
   watchFrameRate(dt){
     this.fpsWarmup += dt;
-    if (this.fpsWarmup < 3) return;
+    if (this.fpsWarmup < 2.5) return;
     this.fpsAcc += dt; this.fpsFrames++;
-    if (this.fpsAcc < 2.5) return;
+    if (this.fpsAcc < 2) return;
     const fps = this.fpsFrames / this.fpsAcc;
     this.fpsAcc = 0; this.fpsFrames = 0;
     if (fps < 40 && this.autoScale > 0.6){
@@ -164,7 +164,7 @@ export const Game = {
   /* --------- ניהול ריצה --------- */
   resetRun(){
     const prof = SPEEDS[save.speed] || SPEEDS.normal;
-    this.p = { lane: 1, laneVis: 1, y: 0, vy: 0, slide: 0, stumble: 0, invuln: 0, shield: 0, magnet: 0, jumpBuffer: 0 };
+    this.p = { lane: 1, laneVis: 1, y: 0, vy: 0, slide: 0, stumble: 0, invuln: 0, shield: 0, magnet: 0, jumpBuffer: 0, squash: 0, lean: 0 };
     this.speed = prof.start;
     this.prof = prof;
     this.scrollZ = 0;
@@ -179,6 +179,8 @@ export const Game = {
     this.slotIndex = 0;
     this.gateCountdown = 5;
     this.shake = 0;
+    this.camX = 0;
+    this.dustAt = 0;
     this.treehouseZ = null;
     this.nextMilestone = 25;
     this.runT = 0;
@@ -237,7 +239,7 @@ export const Game = {
     if (roll < 0.55){
       // מכשול בודד — תמיד נשארים שני מסלולים פנויים
       const lane = randInt(0, 2);
-      this.ents.push({ kind: Math.random() < 0.5 ? 'bush' : 'crate', lane, z: Z_SPAWN });
+      this.ents.push({ kind: Math.random() < 0.5 ? 'bush' : 'crate', lane, z: Z_SPAWN, tint: rand(-0.05, 0.05) });
       if (Math.random() < 0.6){
         const free = [0, 1, 2].filter(l => l !== lane);
         this.ents.push({ kind: 'star', lane: pick(free), z: Z_SPAWN, y: 0.35, spin: 0 });
@@ -249,7 +251,7 @@ export const Game = {
       // שני מכשולים — מסלול אחד תמיד פתוח, והכוכב מסמן אותו
       const blocked = [0, 1, 2].sort(() => Math.random() - 0.5).slice(0, 2);
       const open = [0, 1, 2].find(l => !blocked.includes(l));
-      blocked.forEach(l => this.ents.push({ kind: 'crate', lane: l, z: Z_SPAWN }));
+      blocked.forEach(l => this.ents.push({ kind: 'crate', lane: l, z: Z_SPAWN, tint: rand(-0.05, 0.05) }));
       this.ents.push({ kind: 'star', lane: open, z: Z_SPAWN, y: 0.35, spin: 0 });
       this.ents.push({ kind: 'star', lane: open, z: Z_SPAWN + 1.6, y: 0.35, spin: 0 });
       return;
@@ -287,11 +289,26 @@ export const Game = {
   },
 
   /* --------- חלקיקים --------- */
+  puff(x, y, s, n = 8, alpha = 0.5){
+    for (let i = 0; i < n; i++){
+      this.parts.push({
+        kind: 'dust', x, y: y - s * 0.02,
+        vx: rand(-90, 90), vy: rand(-70, -10),
+        life: rand(0.3, 0.6), t: 0, r: rand(s * 0.05, s * 0.11),
+        color: `rgba(226,232,246,${alpha})`, grav: 40,
+      });
+    }
+  },
+
+  floatText(x, y, text, color){
+    this.parts.push({ kind: 'text', x, y, vx: 0, vy: -90, life: 0.75, t: 0, text, color, grav: 0, r: 0 });
+  },
+
   burst(x, y, color, n = 10){
     for (let i = 0; i < n; i++){
       this.parts.push({
-        x, y, vx: rand(-160, 160), vy: rand(-260, -60),
-        life: rand(0.4, 0.8), t: 0, color, r: rand(2.5, 6),
+        kind: 'spark', x, y, vx: rand(-160, 160), vy: rand(-260, -60),
+        life: rand(0.4, 0.8), t: 0, color, r: rand(2.5, 6), grav: 620,
       });
     }
   },
@@ -331,7 +348,7 @@ export const Game = {
     this.meters += move * 1.1;
 
     // טיימרים
-    for (const k of ['slide', 'stumble', 'invuln', 'shield', 'magnet', 'jumpBuffer']){
+    for (const k of ['slide', 'stumble', 'invuln', 'shield', 'magnet', 'jumpBuffer', 'squash']){
       if (this.p[k] > 0) this.p[k] = Math.max(0, this.p[k] - dt);
     }
     this.shake = Math.max(0, this.shake - dt * 3.2);
@@ -342,12 +359,32 @@ export const Game = {
       this.p.y += this.p.vy * dt;
       if (this.p.y <= 0){
         this.p.y = 0;
-        if (this.p.vy < -1) sfx.land();
+        if (this.p.vy < -1){
+          sfx.land();
+          this.p.squash = 0.18;
+          const g = this.projPlayer();
+          this.puff(g.x, g.y, g.s, 9);
+        }
         this.p.vy = 0;
         if (this.p.jumpBuffer > 0) this.liftOff();
       }
     }
+    const prevLaneVis = this.p.laneVis;
     this.p.laneVis = lerp(this.p.laneVis, this.p.lane, Math.min(1, dt * 16));
+    // הטיה לכיוון הפנייה — הדמות והמצלמה נוטות יחד
+    const laneVel = (this.p.laneVis - prevLaneVis) / Math.max(dt, 0.001);
+    this.p.lean = lerp(this.p.lean, clamp(laneVel * 0.42, -1, 1), Math.min(1, dt * 10));
+    this.camX = lerp(this.camX, laneX(this.p.laneVis) * 0.16, Math.min(1, dt * 7));
+
+    // אבק מתחת לגלגיליות
+    if (this.p.y <= 0.01 && this.state !== 'idle'){
+      this.dustAt -= dt;
+      if (this.dustAt <= 0){
+        this.dustAt = 0.055;
+        const g = this.projPlayer();
+        this.puff(g.x + rand(-g.s * 0.1, g.s * 0.1), g.y, g.s, 1, 0.34);
+      }
+    }
     if (this.p.slide <= 0 && this.p.jumpBuffer > 0 && this.p.y <= 0) this.liftOff();
 
     // יצירת מסלול
@@ -434,7 +471,7 @@ export const Game = {
       pt.t += dt;
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
-      pt.vy += 620 * dt;
+      pt.vy += (pt.grav ?? 620) * dt;
     }
     this.parts = this.parts.filter(pt => pt.t < pt.life);
 
@@ -445,8 +482,16 @@ export const Game = {
   collect(e){
     e.taken = true;
     const pr = this.projPlayer();
-    if (e.kind === 'star'){ this.addStars(1); sfx.star(); this.burst(pr.x, pr.y - pr.s * 0.6, '#ffc531', 8); }
-    else if (e.kind === 'gem'){ this.addStars(5); sfx.gem(); this.burst(pr.x, pr.y - pr.s * 0.6, '#59d8ff', 16); this.hooks.onToast?.('+5 ⭐'); }
+    if (e.kind === 'star'){
+      this.addStars(1); sfx.star();
+      this.burst(pr.x, pr.y - pr.s * 0.6, '#ffc531', 8);
+      this.floatText(pr.x, pr.y - pr.s * 0.9, '+1', '#ffdf6b');
+    }
+    else if (e.kind === 'gem'){
+      this.addStars(5); sfx.gem();
+      this.burst(pr.x, pr.y - pr.s * 0.6, '#59d8ff', 16);
+      this.floatText(pr.x, pr.y - pr.s * 0.9, '+5', '#8ef2ff');
+    }
     else if (e.kind === 'magnet'){ this.p.magnet = 8; sfx.gem(); this.hooks.onToast?.('מגנט! 🧲'); say('מגנט'); }
     else if (e.kind === 'shield'){ this.p.shield = 12; sfx.shield(); this.hooks.onToast?.('בועה! 🫧'); say('בועת הגנה'); }
   },
@@ -543,6 +588,8 @@ export const Game = {
       const m = this.shake * 9;
       ctx.translate(rand(-m, m), rand(-m, m));
     }
+    // תזוזת מצלמה עדינה אחרי המסלול
+    ctx.translate(-this.camX * view.unit * 0.30, 0);
 
     drawSky(ctx, view, pal, this.scrollZ, dayT);
     drawGround(ctx, view, pal, this.scrollZ);
@@ -579,19 +626,31 @@ export const Game = {
         case 'magnet': drawShadow(ctx, pr.x, pr.y, pr.s, 0.07); drawMagnet(ctx, py.x, py.y, pr.s, e.spin); break;
         case 'shield': drawShadow(ctx, pr.x, pr.y, pr.s, 0.07); drawShieldProp(ctx, py.x, py.y, pr.s, e.spin); break;
         case 'bush':   drawBush(ctx, pr.x, pr.y, pr.s); break;
-        case 'crate':  drawCrate(ctx, pr.x, pr.y, pr.s); break;
-        case 'bar':    drawBar(ctx, pr.x, pr.y, pr.s); break;
+        case 'crate':  drawCrate(ctx, view, e.z, wx, e.tint ?? 0); break;
+        case 'bar':    drawBar(ctx, view, e.z, wx); break;
       }
     }
     if (!playerDrawn.done){ drawFog(ctx, view, pal); this.drawPlayer(ctx, pal); }
 
     // חלקיקים
     for (const pt of this.parts){
-      ctx.globalAlpha = clamp(1 - pt.t / pt.life, 0, 1);
-      ctx.fillStyle = pt.color;
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill();
+      const a = clamp(1 - pt.t / pt.life, 0, 1);
+      ctx.globalAlpha = a;
+      if (pt.kind === 'text'){
+        ctx.fillStyle = pt.color;
+        ctx.font = `900 ${Math.round(view.unit * 0.20)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(13,27,62,.45)';
+        ctx.strokeText(pt.text, pt.x, pt.y);
+        ctx.fillText(pt.text, pt.x, pt.y);
+      } else {
+        ctx.fillStyle = pt.color;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
+    ctx.textAlign = 'start';
 
     // אור חמים של שקיעה
     if (pal.warm > 0.02){
@@ -621,6 +680,9 @@ export const Game = {
 
     const pose = this.p.slide > 0 ? 'slide' : this.p.y > 0.05 ? 'jump' : 'run';
     const color = colorById(save.color).hex;
+    const expr = this.p.stumble > 0 ? 'oops'
+      : this.speed > this.prof.start + (this.prof.max - this.prof.start) * 0.65 ? 'determined'
+      : undefined;
 
     ctx.save();
     ctx.translate(pr.x, pr.y);
@@ -631,7 +693,11 @@ export const Game = {
       ctx.globalAlpha = 0.55 + 0.45 * Math.sin(this.runT * 26);
     }
     ctx.scale(pr.s, pr.s);
-    drawCharacter(ctx, save.character, { pose, t: this.runT, color });
+    drawCharacter(ctx, save.character, {
+      pose, t: this.runT, color,
+      outfit: save.outfit || DEFAULT_OUTFIT,
+      lean: this.p.lean, vy: this.p.vy, squash: this.p.squash / 0.18, expr,
+    });
     ctx.restore();
 
     // בועת הגנה

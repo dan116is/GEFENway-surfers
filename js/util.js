@@ -60,6 +60,9 @@ const PROFILE_DEFAULTS = {
   color: 'blue',
   character: 'fox',
   pickEachRun: true,        // בורר דמות לפני כל סיבוב
+  // כפול מ-DEFAULT_OUTFIT ב-characters.js בכוונה: util נטען לפניו בקובץ המאוחד
+  outfit: { hat: 'none', face: 'none', back: 'none', board: 'classic' },
+  streak: { days: 0, lastDay: 0 },
   stars: 0,
   sessionMinutes: 10,
   speed: 'normal',          // calm | normal | fast
@@ -74,18 +77,29 @@ const PROFILE_DEFAULTS = {
 const ROOT_DEFAULTS = {
   version: 2,
   activeId: '',
-  quality: 'high',          // normal | high | ultra
+  quality: 'ultra',         // normal | high | ultra
   profiles: [],
 };
 
+/** העתקה עמוקה — בלעדיה כמה פרופילים היו חולקים את אותו אובייקט streak/totals */
+function clone(v){
+  if (Array.isArray(v)) return v.map(clone);
+  if (v && typeof v === 'object'){
+    const o = {};
+    for (const k of Object.keys(v)) o[k] = clone(v[k]);
+    return o;
+  }
+  return v;
+}
+
 function deepMerge(base, over){
-  const out = Array.isArray(base) ? base.slice() : { ...base };
+  const out = clone(base);
   for (const k of Object.keys(over || {})){
     const v = over[k];
     if (v && typeof v === 'object' && !Array.isArray(v) && typeof base[k] === 'object' && base[k] !== null){
       out[k] = deepMerge(base[k], v);
     } else if (v !== undefined){
-      out[k] = v;
+      out[k] = clone(v);
     }
   }
   return out;
@@ -179,20 +193,47 @@ export function resetSave(){
   try { localStorage.removeItem(KEY); localStorage.removeItem(LEGACY); } catch { /* ignore */ }
 }
 
+/* ---------- פרס יומי ---------- */
+/** מספר היום המקומי — כך "יום חדש" הוא באמת בוקר חדש, לא 24 שעות מאז אתמול */
+export function dayNumber(now = new Date()){
+  return Math.floor((now.getTime() - now.getTimezoneOffset() * 60000) / 86400000);
+}
+
+export const STREAK_LADDER = [10, 15, 20, 30, 40, 60, 100];
+
+export function pendingDailyReward(profile = save){
+  if (!profile) return null;
+  const today = dayNumber();
+  if (profile.streak.lastDay === today) return null;
+  const broken = today - profile.streak.lastDay > 1;
+  const day = broken ? 1 : Math.min(profile.streak.days + 1, STREAK_LADDER.length);
+  return { day, stars: STREAK_LADDER[day - 1], full: day === STREAK_LADDER.length };
+}
+
+export function claimDailyReward(profile = save){
+  const reward = pendingDailyReward(profile);
+  if (!reward) return null;
+  profile.streak.days = reward.day % STREAK_LADDER.length === 0 ? 0 : reward.day;
+  profile.streak.lastDay = dayNumber();
+  profile.stars += reward.stars;
+  persist();
+  return reward;
+}
+
 /* ---------- איכות תצוגה ---------- */
 export const QUALITY = {
   // dprCap — עד כמה מותר להתקרב לרזולוציה הפיזית של המסך
   // ss     — דגימת־על: מציירים מעל הרזולוציה הפיזית ומקטינים, כדי לקבל קצוות חלקים
   normal: { dprCap: 2, ss: 1.0,  label: 'רגיל'    },
   high:   { dprCap: 3, ss: 1.0,  label: 'גבוה'    },
-  ultra:  { dprCap: 3, ss: 1.35, label: 'מקסימלי' },
+  ultra:  { dprCap: 3, ss: 1.5,  label: 'מקסימלי' },
 };
 
 /* ---------- פרופילי מהירות (עדינים — מותאם לגיל 4) ---------- */
 export const SPEEDS = {
-  calm:   { start: 5.5, max: 8.0,  ramp: 0.055, label: 'רגוע'  },
-  normal: { start: 6.8, max: 10.5, ramp: 0.075, label: 'רגיל'  },
-  fast:   { start: 8.0, max: 13.0, ramp: 0.10,  label: 'מהיר'  },
+  calm:   { start: 6.4,  max: 9.4,  ramp: 0.070, label: 'רגוע' },
+  normal: { start: 7.9,  max: 12.3, ramp: 0.090, label: 'רגיל' },
+  fast:   { start: 9.4,  max: 15.2, ramp: 0.125, label: 'מהיר' },
 };
 
 /* ---------- רטט עדין ---------- */

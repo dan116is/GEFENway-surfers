@@ -3,14 +3,15 @@
 import {
   $, save, store, persist, resetSave, hasProfiles,
   setActiveProfile, addProfile, removeProfile,
+  pendingDailyReward, claimDailyReward, STREAK_LADDER,
   COLORS, colorById, SPEEDS, QUALITY, clamp, pick, buzz,
 } from './util.js';
 import { unlockAudio, sfx, say, hushVoice } from './audio.js';
-import { CHARACTERS, charById, paintPreview } from './characters.js';
+import { CHARACTERS, charById, paintPreview, ACCESSORIES, ACCESSORY_LABELS, DEFAULT_OUTFIT } from './characters.js';
 import { Game } from './game.js';
 
 /* ---------------- מסכים ---------------- */
-const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'pick', 'who', 'parent'];
+const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'pick', 'who', 'daily', 'parent'];
 function show(name){
   SCREENS.forEach(s => $('#scr-' + s)?.classList.toggle('show', s === name));
   const inGame = name === null;
@@ -110,7 +111,7 @@ let heroT = 0, heroRaf = 0;
 function heroLoop(){
   heroRaf = requestAnimationFrame(heroLoop);
   heroT += 0.016;
-  paintPreview(heroCanvas, save.character, colorById(save.color).hex, heroT, 'run');
+  paintPreview(heroCanvas, save.character, colorById(save.color).hex, heroT, 'run', save.outfit || DEFAULT_OUTFIT);
 }
 function startHero(){ if (!heroRaf) heroLoop(); }
 function stopHero(){ cancelAnimationFrame(heroRaf); heroRaf = 0; }
@@ -125,8 +126,9 @@ function refreshHome(){
 function goHome(){
   stopWho();
   stopPick();
-  show('home');
   refreshHome();
+  if (showDailyIfDue()) return;   // הפרס נפתח פעם ביום, לפני מסך הבית
+  show('home');
   startHero();
 }
 
@@ -137,7 +139,7 @@ let whoRaf = 0, whoT = 0;
 function whoLoop(){
   whoRaf = requestAnimationFrame(whoLoop);
   whoT += 0.016;
-  whoPreviews.forEach((pv, i) => paintPreview(pv.cv, pv.char, pv.color, whoT + i * 0.4, 'run'));
+  whoPreviews.forEach((pv, i) => paintPreview(pv.cv, pv.char, pv.color, whoT + i * 0.4, 'run', pv.outfit));
 }
 function stopWho(){ cancelAnimationFrame(whoRaf); whoRaf = 0; }
 
@@ -171,7 +173,7 @@ function buildWho(){
     };
 
     grid.appendChild(card);
-    whoPreviews.push({ cv, char: p.character, color: colorById(p.color).hex });
+    whoPreviews.push({ cv, char: p.character, color: colorById(p.color).hex, outfit: p.outfit || DEFAULT_OUTFIT });
   });
 }
 
@@ -191,9 +193,11 @@ function pickLoop(){
   pickRaf = requestAnimationFrame(pickLoop);
   pickT += 0.016;
   const col = colorById(save.color).hex;
+  const fit = save.outfit || DEFAULT_OUTFIT;
+  paintPreview($('#pickHero'), save.character, col, pickT, 'run', fit);
   pickPreviews.forEach((pv, i) => {
     const running = pv.id === save.character;
-    paintPreview(pv.cv, pv.id, col, running ? pickT : i * 0.31, running ? 'run' : 'idle');
+    paintPreview(pv.cv, pv.id, col, running ? pickT : i * 0.31, running ? 'run' : 'idle', fit);
   });
 }
 function stopPick(){ cancelAnimationFrame(pickRaf); pickRaf = 0; }
@@ -242,6 +246,46 @@ function buildPick(){
   });
 
   buildSwatches($('#pickColor'), save.color, id => { save.color = id; persist(); });
+  buildAccessoryRows();
+}
+
+/** שורות אביזרים — הכל פתוח, בלי מחירים ובלי מנעולים */
+function buildAccessoryRows(){
+  const host = $('#accRows');
+  host.innerHTML = '';
+  if (!save.outfit) save.outfit = { ...DEFAULT_OUTFIT };
+
+  for (const slot of Object.keys(ACCESSORIES)){
+    const row = document.createElement('div');
+    row.className = 'acc-row';
+    const title = document.createElement('span');
+    title.textContent = ACCESSORY_LABELS[slot];
+    row.appendChild(title);
+
+    const chips = document.createElement('div');
+    chips.className = 'acc-chips';
+    ACCESSORIES[slot].forEach(item => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'acc-chip';
+      b.textContent = item.emoji;
+      b.title = item.name;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-label', `${ACCESSORY_LABELS[slot]}: ${item.name}`);
+      b.setAttribute('aria-checked', String(save.outfit[slot] === item.id));
+      b.onclick = () => {
+        save.outfit[slot] = item.id;
+        persist();
+        sfx.tap();
+        buzz(6);
+        chips.querySelectorAll('.acc-chip').forEach(x => x.setAttribute('aria-checked', 'false'));
+        b.setAttribute('aria-checked', 'true');
+      };
+      chips.appendChild(b);
+    });
+    row.appendChild(chips);
+    host.appendChild(row);
+  }
 }
 
 function openPick(){
@@ -346,10 +390,49 @@ function showEnd(res){
     ? 'סיבוב מושלם — בלי אף מעידה! 🌟'
     : `סך הכל אספת ${save.stars} כוכבים ⭐`;
 
+  const board = $('#endBoard');
+  if (store.profiles.length > 1){
+    const ranked = store.profiles.slice().sort((a, b) => b.bestMeters - a.bestMeters);
+    board.innerHTML = ranked.map((p, i) =>
+      `<div class="board-row${p.id === store.activeId ? ' me' : ''}">` +
+      `<span>${['🥇', '🥈', '🥉'][i] || '·'}</span>` +
+      `<span class="nm">${p.name}</span>` +
+      `<span>${p.bestMeters} מ׳</span></div>`).join('');
+  } else {
+    board.innerHTML = '';
+  }
+
   persist();
   show('end');
   confetti(40);
   say(`${save.name || 'גפן'}, אספת ${res.stars} כוכבים. כל הכבוד!`, { force: true });
+}
+
+/* ---------------- פרס יומי (סולם רצף) ---------------- */
+function showDailyIfDue(){
+  const reward = pendingDailyReward();
+  if (!reward) return false;
+
+  claimDailyReward();
+  $('#dailyTitle').textContent = reward.full
+    ? 'שבוע שלם ברצף! 🏆'
+    : `יום ${reward.day} ברצף!`;
+  $('#dailyText').textContent = `קיבלת ${reward.stars} כוכבים`;
+
+  const dots = $('#dailyDots');
+  dots.innerHTML = '';
+  STREAK_LADDER.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'daily-dot' + (i + 1 < reward.day ? ' done' : i + 1 === reward.day ? ' today' : '');
+    d.textContent = String(i + 1);
+    dots.appendChild(d);
+  });
+
+  show('daily');
+  sfx.fanfare();
+  confetti(reward.full ? 46 : 24);
+  say(`${save.name}, קיבלת ${reward.stars} כוכבים על יום ${reward.day} ברצף`, { force: true });
+  return true;
 }
 
 /* ---------------- מסך היכרות (שחקן ראשון או נוסף) ---------------- */
@@ -407,6 +490,9 @@ function wire(){
     goHome();
   };
 
+  /* פרס יומי */
+  $('#btnDailyOk').onclick = () => { goHome(); };
+
   /* בית */
   $('#btnPlay').onclick = () => { save.pickEachRun ? openPick() : startRun(); };
   $('#btnWho').onclick = () => openWho();
@@ -418,7 +504,19 @@ function wire(){
 
   /* משחק */
   $('#btnPause').onclick = () => { Game.pause(); hushVoice(); show('pause'); };
-  $('#btnResume').onclick = () => { show(null); Game.resume(); };
+  $('#btnResume').onclick = () => {
+    show(null);
+    let n = 3;
+    toast(String(n));
+    const tick = setInterval(() => {
+      n--;
+      if (n > 0){ toast(String(n)); sfx.tap(); return; }
+      clearInterval(tick);
+      toast('קדימה!');
+      sfx.gem();
+      Game.resume();
+    }, 620);
+  };
   $('#btnQuit').onclick = () => {
     coachTimers.forEach(clearTimeout); coachTimers = [];
     Game.endNow(); persist(); Game.quit(); goHome();
@@ -481,7 +579,8 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else boot();
 
 /* Service Worker — כדי שהמשחק יעבוד גם בלי אינטרנט */
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')
+    && document.querySelector('link[rel="manifest"]')){
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });

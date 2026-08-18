@@ -116,6 +116,7 @@
       <div class="stat"><b id="endGates">0</b><span>שערים</span></div>
     </div>
     <div id="endUnlock" class="unlock"></div>
+    <div id="endBoard" class="board"></div>
     <button class="btn big" id="btnEndHome">מעולה! 🏡</button>
     <button class="btn ghost" id="btnEndAgain">עוד סיבוב</button>
   </div>
@@ -134,13 +135,26 @@
 <div class="screen" id="scr-pick">
   <div class="sheet wide">
     <h1>מי רץ היום?</h1>
+    <div class="pick-stage"><canvas id="pickHero"></canvas></div>
     <div class="pick-grid" id="pickGrid"></div>
     <div class="pick-colors">
       <div class="pick-colors-title">איזה צבע?</div>
       <div class="swatches center" id="pickColor"></div>
     </div>
+    <div class="acc-rows" id="accRows"></div>
     <button class="btn play" id="btnPickGo"><span>▶</span> קדימה!</button>
     <button class="btn ghost" id="btnPickBack">חזרה</button>
+  </div>
+</div>
+
+<!-- ======================= פרס יומי ======================= -->
+<div class="screen" id="scr-daily">
+  <div class="sheet">
+    <div class="daily-emoji">🎁</div>
+    <h1 id="dailyTitle">פרס יומי</h1>
+    <div class="daily-dots" id="dailyDots"></div>
+    <p class="lead" id="dailyText"></p>
+    <button class="btn big" id="btnDailyOk">תודה! 🎉</button>
   </div>
 </div>
 

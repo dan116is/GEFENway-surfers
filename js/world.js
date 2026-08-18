@@ -1,6 +1,6 @@
 /* העולם: פרספקטיבה, שמיים משתנים לפי הזמן שנותר, כביש, נוף ואביזרים */
 
-import { lerp, clamp, mixHex } from './util.js';
+import { lerp, clamp, mixHex, shade } from './util.js';
 
 export const DEPTH   = 9;      // עומק הפרספקטיבה
 export const LANE_W  = 1.05;   // מרחק בין מסלולים ביחידות עולם
@@ -265,14 +265,15 @@ export function drawSideScenery(ctx, view, pal, scrollZ){
 
 function drawRock(ctx, x, y, s, pal, seed){
   const r = s * (0.10 + (seed % 3) * 0.035);
-  ctx.fillStyle = mixHex('#9aa3b8', '#2a2f4d', pal.night * 0.8);
+  const base = mixHex('#9aa3b8', '#2a2f4d', pal.night * 0.8);
+  drawShadow(ctx, x, y, s * 0.5, 0.14);
+  const g = ctx.createLinearGradient(x + r * SUN_DIR, y - r * 1.2, x - r * SUN_DIR, y);
+  g.addColorStop(0, shade(base, 0.16));
+  g.addColorStop(1, shade(base, -0.14));
+  ctx.fillStyle = g;
   ctx.beginPath();
   ctx.ellipse(x, y - r * 0.4, r * 1.35, r, 0, Math.PI, 0);
   ctx.closePath(); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,.22)';
-  ctx.beginPath();
-  ctx.ellipse(x - r * 0.35, y - r * 0.62, r * 0.42, r * 0.24, -0.4, 0, Math.PI * 2);
-  ctx.fill();
 }
 
 function drawShrub(ctx, x, y, s, pal, seed){
@@ -302,15 +303,23 @@ function drawFlower(ctx, x, y, s, pal, seed){
 
 function drawTree(ctx, x, y, s, pal, seed){
   const h = (1.5 + (seed % 4) * 0.22) * s;
-  ctx.fillStyle = mixHex('#8a5a34', '#2a2540', pal.night);
-  ctx.fillRect(x - s * 0.05, y - h * 0.42, s * 0.10, h * 0.42);
-  const crown = mixHex(seed % 2 ? '#35b866' : '#2f9f5b', '#10402c', pal.night * 0.85);
-  ctx.fillStyle = crown;
+  drawShadow(ctx, x, y, s * 1.1, 0.16);
+  const bark = mixHex('#8a5a34', '#2a2540', pal.night);
+  ctx.fillStyle = bark;
+  ctx.fillRect(x - s * 0.055, y - h * 0.42, s * 0.11, h * 0.42);
+  ctx.fillStyle = shade(bark, 0.10);
+  ctx.fillRect(x + SUN_DIR * s * 0.012, y - h * 0.42, s * 0.043, h * 0.42);
+
+  const light = mixHex(seed % 2 ? '#5fd98d' : '#4cc97c', '#1a5a3c', pal.night * 0.85);
+  const dark  = mixHex(seed % 2 ? '#238f52' : '#1d7d49', '#0d3526', pal.night * 0.85);
   for (let i = 0; i < 3; i++){
-    const r = s * (0.34 - i * 0.06);
-    ctx.beginPath();
-    ctx.arc(x, y - h * (0.40 + i * 0.20), r, 0, Math.PI * 2);
-    ctx.fill();
+    const r = s * (0.36 - i * 0.062);
+    const cy = y - h * (0.40 + i * 0.20);
+    const g = ctx.createRadialGradient(x + r * 0.45 * SUN_DIR, cy - r * 0.45, r * 0.1, x, cy, r);
+    g.addColorStop(0, light);
+    g.addColorStop(1, dark);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill();
   }
 }
 
@@ -333,12 +342,65 @@ function drawLamp(ctx, x, y, s, pal){
 /* ============================================================
    אביזרים
    ============================================================ */
+/** השמש יושבת מימין־למעלה, ולכן כל התאורה והצללים בסצנה עקביים איתה */
+export const SUN_DIR = 1;
+
+/**
+ * קופסה בפרספקטיבה אמיתית: שמונה פינות מוקרנות, שלוש פאות מוצללות.
+ * z = מרכז הקופסה, wx = מיקום רוחבי, w/h/d = רוחב/גובה/עומק ביחידות עולם.
+ */
+export function drawBox3D(ctx, view, z, wx, w, h, d, base, opts = {}){
+  const y0 = opts.y0 || 0;          // גובה הבסיס מעל הקרקע
+  const y1 = y0 + h;
+  const zF = Math.max(z - d / 2, 0.15);
+  const zB = z + d / 2;
+  const pt = (zz, x, y) => project(view, zz, x, y);
+
+  const fbl = pt(zF, wx - w / 2, y0), fbr = pt(zF, wx + w / 2, y0);
+  const ftl = pt(zF, wx - w / 2, y1), ftr = pt(zF, wx + w / 2, y1);
+  const bbl = pt(zB, wx - w / 2, y0), bbr = pt(zB, wx + w / 2, y0);
+  const btl = pt(zB, wx - w / 2, y1), btr = pt(zB, wx + w / 2, y1);
+
+  const poly = pts => {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    ctx.fill();
+    if (opts.edge){ ctx.strokeStyle = opts.edge; ctx.lineWidth = Math.max(1, fbl.s * 0.02); ctx.stroke(); }
+  };
+
+  // גג (או תחתית, אם הקופסה מרחפת מעל גובה העין)
+  ctx.fillStyle = shade(base, 0.16);
+  poly([btl, btr, ftr, ftl]);
+  if (y0 > 0.05){
+    ctx.fillStyle = shade(base, -0.22);
+    poly([bbl, bbr, fbr, fbl]);
+  }
+
+  // רק אחת מפאות הצד נראית, לפי הצד שבו הקופסה נמצאת ביחס למצלמה
+  const showsLeftFace = wx > 0;
+  const sideLit = showsLeftFace ? SUN_DIR < 0 : SUN_DIR > 0;
+  ctx.fillStyle = shade(base, sideLit ? 0.04 : -0.14);
+  poly(showsLeftFace ? [ftl, btl, bbl, fbl] : [ftr, btr, bbr, fbr]);
+
+  // פאה קדמית
+  ctx.fillStyle = base;
+  poly([ftl, ftr, fbr, fbl]);
+
+  return { fbl, fbr, ftl, ftr, s: fbl.s };
+}
+
 export function drawShadow(ctx, x, y, s, alpha = 0.22){
   if (alpha <= 0.001) return;
   ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#0d1b3e';
-  ctx.beginPath(); ctx.ellipse(x, y, s * 0.30, s * 0.085, 0, 0, Math.PI * 2); ctx.fill();
+  // הצל נופל הפוך לשמש, ומתרכך בשוליים
+  const cx = x - SUN_DIR * s * 0.10;
+  const g = ctx.createRadialGradient(cx, y, s * 0.03, cx, y, s * 0.34);
+  g.addColorStop(0, `rgba(13,27,62,${alpha})`);
+  g.addColorStop(1, 'rgba(13,27,62,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(cx, y, s * 0.34, s * 0.10, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -380,40 +442,75 @@ export function drawGemProp(ctx, x, y, s, spin, glow = true){
 
 export function drawBush(ctx, x, y, s){
   drawShadow(ctx, x, y, s);
-  ctx.fillStyle = '#2f9f5b';
-  for (const [dx, dy, r] of [[-0.16, 0, .20], [0.16, 0, .20], [0, -0.10, .24]]){
-    ctx.beginPath(); ctx.arc(x + dx * s, y - s * 0.16 + dy * s, r * s, 0, Math.PI * 2); ctx.fill();
+  for (const [dx, dy, r] of [[-0.17, 0, .21], [0.17, 0, .21], [0, -0.12, .26]]){
+    const cx = x + dx * s, cy = y - s * 0.17 + dy * s, rad = r * s;
+    const g = ctx.createRadialGradient(cx + rad * 0.42 * SUN_DIR, cy - rad * 0.42, rad * 0.12, cx, cy, rad);
+    g.addColorStop(0, '#68d98f');
+    g.addColorStop(0.6, '#35ab63');
+    g.addColorStop(1, '#1f7a45');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.fillStyle = '#43c377';
-  ctx.beginPath(); ctx.arc(x - s * 0.06, y - s * 0.30, s * 0.12, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ff5d8f';
-  ctx.beginPath(); ctx.arc(x + s * 0.13, y - s * 0.26, s * 0.045, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + s * 0.13, y - s * 0.30, s * 0.05, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath(); ctx.arc(x - s * 0.14, y - s * 0.22, s * 0.04, 0, Math.PI * 2); ctx.fill();
 }
 
-export function drawCrate(ctx, x, y, s){
-  drawShadow(ctx, x, y, s);
-  const w = s * 0.52, h = s * 0.72;
-  ctx.fillStyle = '#d79a4f';
-  ctx.fillRect(x - w / 2, y - h, w, h);
-  ctx.fillStyle = '#b57a34';
-  ctx.fillRect(x - w / 2, y - h, w, h * 0.14);
-  ctx.strokeStyle = '#8f5f26'; ctx.lineWidth = Math.max(1.5, s * 0.035);
-  ctx.strokeRect(x - w / 2, y - h, w, h);
+/** ארגז עץ — קובייה אמיתית עם גג, צד וקדמה מוצללים */
+export function drawCrate(ctx, view, z, wx, tint = 0){
+  const ground = project(view, z, wx);
+  drawShadow(ctx, ground.x, ground.y, ground.s);
+  const box = drawBox3D(ctx, view, z, wx, 0.64, 0.82, 0.64,
+    shade('#d79a4f', tint), { edge: 'rgba(122,80,32,.55)' });
+
+  // קרשים ואלכסונים על הפאה הקדמית
+  const { ftl, ftr, fbl, fbr } = box;
+  ctx.save();
   ctx.beginPath();
-  ctx.moveTo(x - w / 2, y - h); ctx.lineTo(x + w / 2, y);
-  ctx.moveTo(x + w / 2, y - h); ctx.lineTo(x - w / 2, y);
+  ctx.moveTo(ftl.x, ftl.y); ctx.lineTo(ftr.x, ftr.y);
+  ctx.lineTo(fbr.x, fbr.y); ctx.lineTo(fbl.x, fbl.y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(122,80,32,.5)';
+  ctx.lineWidth = Math.max(1.2, box.s * 0.03);
+  ctx.beginPath();
+  ctx.moveTo(ftl.x, ftl.y); ctx.lineTo(fbr.x, fbr.y);
+  ctx.moveTo(ftr.x, ftr.y); ctx.lineTo(fbl.x, fbl.y);
   ctx.stroke();
+  ctx.fillStyle = 'rgba(181,122,52,.85)';
+  ctx.fillRect(Math.min(ftl.x, fbl.x), ftl.y, Math.abs(ftr.x - ftl.x), (fbl.y - ftl.y) * 0.16);
+  ctx.fillRect(Math.min(ftl.x, fbl.x), fbl.y - (fbl.y - ftl.y) * 0.16, Math.abs(fbr.x - fbl.x), (fbl.y - ftl.y) * 0.16);
+  ctx.restore();
 }
 
-export function drawBar(ctx, x, y, s){
-  const w = s * 0.66;
-  const top = y - s * 1.30, bot = y - s * 0.62;
-  ctx.fillStyle = '#ff5d8f';
-  ctx.fillRect(x - w / 2, top, w, bot - top);
-  ctx.fillStyle = '#ffffff';
-  for (let i = 0; i < 3; i++) ctx.fillRect(x - w / 2 + i * w / 3 + w * 0.07, top, w * 0.10, bot - top);
-  ctx.fillStyle = '#c9376a';
-  ctx.fillRect(x - w / 2, bot - s * 0.06, w, s * 0.06);
+/** מוט עילי — קורה תלת־ממדית שתלויה מעל המסלול, על שני עמודים */
+export function drawBar(ctx, view, z, wx){
+  const ground = project(view, z, wx);
+  drawShadow(ctx, ground.x, ground.y, ground.s, 0.16);
+  // עמודים
+  for (const sd of [-1, 1]){
+    drawBox3D(ctx, view, z, wx + sd * 0.46, 0.11, 1.28, 0.11, '#c9376a');
+  }
+  // הקורה עצמה — מרחפת בגובה שצריך להתכופף מתחתיו
+  const beam = drawBox3D(ctx, view, z, wx, 1.02, 0.40, 0.28, '#ff5d8f',
+    { edge: 'rgba(160,40,80,.5)', y0: 0.72 });
+  const { ftl, ftr, fbl } = beam;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(ftl.x, ftl.y); ctx.lineTo(ftr.x, ftr.y);
+  ctx.lineTo(beam.fbr.x, beam.fbr.y); ctx.lineTo(fbl.x, fbl.y);
+  ctx.closePath(); ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  const bw = ftr.x - ftl.x;
+  for (let i = 0; i < 4; i++){
+    ctx.save();
+    ctx.translate(ftl.x + bw * (0.08 + i * 0.24), ftl.y);
+    ctx.transform(1, 0, -0.45, 1, 0, 0);
+    ctx.fillRect(0, 0, bw * 0.10, fbl.y - ftl.y);
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
 export function drawMagnet(ctx, x, y, s, spin){

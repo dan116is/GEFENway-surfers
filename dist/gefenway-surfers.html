@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>גפן ווי סרפרס</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0d1b3e">
@@ -238,6 +239,35 @@ input[type=text]:focus{outline:none;border-color:var(--grape);background:#fff}
 .pick-card .tick{height:18px;font-size:16px;line-height:1;color:var(--grape);opacity:0}
 .pick-card[aria-checked=true] .tick{opacity:1}
 
+.pick-stage{
+  height:150px;margin:0 0 14px;border-radius:22px;
+  background:linear-gradient(180deg,#eaf4ff,#f7f9ff);
+  display:grid;place-items:center;overflow:hidden}
+#pickHero{width:100%;height:150px;display:block}
+
+.acc-rows{display:grid;gap:12px;margin:4px 0 8px}
+.acc-row > span{display:block;margin-bottom:7px;font-size:15px;color:var(--ink-soft);text-align:start}
+.acc-chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.acc-chip{
+  -webkit-appearance:none;appearance:none;border:3px solid #e2e7f5;cursor:pointer;flex:none;
+  width:58px;height:58px;border-radius:18px;background:#f7f9ff;
+  font-size:26px;line-height:1;display:grid;place-items:center}
+.acc-chip[aria-checked=true]{background:#fff;border-color:var(--grape);transform:translateY(-2px);
+  box-shadow:0 5px 0 rgba(123,75,255,.18)}
+
+.daily-emoji{font-size:66px;line-height:1;margin-bottom:4px;animation:bob 1s ease-in-out infinite alternate}
+.daily-dots{display:flex;justify-content:center;gap:7px;margin:10px 0 14px}
+.daily-dot{width:26px;height:26px;border-radius:50%;background:#eef1fa;display:grid;place-items:center;
+  font-size:13px;font-weight:900;color:var(--ink-soft)}
+.daily-dot.done{background:var(--sun);color:#7a5410}
+.daily-dot.today{background:var(--grape);color:#fff;transform:scale(1.18)}
+
+.board{margin-top:14px;display:grid;gap:6px}
+.board-row{display:flex;align-items:center;gap:10px;background:#f4f6ff;border-radius:14px;padding:10px 14px;
+  font-size:16px;color:var(--ink-soft);font-weight:700}
+.board-row .nm{flex:1;text-align:start;color:var(--ink);font-weight:900}
+.board-row.me{background:#efe9ff}
+
 .pick-colors{margin-bottom:6px}
 .pick-colors-title{font-size:16px;color:var(--ink-soft);margin-bottom:9px}
 .swatches.center{justify-content:center}
@@ -367,6 +397,7 @@ input[type=text]:focus{outline:none;border-color:var(--grape);background:#fff}
       <div class="stat"><b id="endGates">0</b><span>שערים</span></div>
     </div>
     <div id="endUnlock" class="unlock"></div>
+    <div id="endBoard" class="board"></div>
     <button class="btn big" id="btnEndHome">מעולה! 🏡</button>
     <button class="btn ghost" id="btnEndAgain">עוד סיבוב</button>
   </div>
@@ -385,13 +416,26 @@ input[type=text]:focus{outline:none;border-color:var(--grape);background:#fff}
 <div class="screen" id="scr-pick">
   <div class="sheet wide">
     <h1>מי רץ היום?</h1>
+    <div class="pick-stage"><canvas id="pickHero"></canvas></div>
     <div class="pick-grid" id="pickGrid"></div>
     <div class="pick-colors">
       <div class="pick-colors-title">איזה צבע?</div>
       <div class="swatches center" id="pickColor"></div>
     </div>
+    <div class="acc-rows" id="accRows"></div>
     <button class="btn play" id="btnPickGo"><span>▶</span> קדימה!</button>
     <button class="btn ghost" id="btnPickBack">חזרה</button>
+  </div>
+</div>
+
+<!-- ======================= פרס יומי ======================= -->
+<div class="screen" id="scr-daily">
+  <div class="sheet">
+    <div class="daily-emoji">🎁</div>
+    <h1 id="dailyTitle">פרס יומי</h1>
+    <div class="daily-dots" id="dailyDots"></div>
+    <p class="lead" id="dailyText"></p>
+    <button class="btn big" id="btnDailyOk">תודה! 🎉</button>
   </div>
 </div>
 
@@ -505,6 +549,9 @@ const PROFILE_DEFAULTS = {
   color: 'blue',
   character: 'fox',
   pickEachRun: true,        // בורר דמות לפני כל סיבוב
+  // כפול מ-DEFAULT_OUTFIT ב-characters.js בכוונה: util נטען לפניו בקובץ המאוחד
+  outfit: { hat: 'none', face: 'none', back: 'none', board: 'classic' },
+  streak: { days: 0, lastDay: 0 },
   stars: 0,
   sessionMinutes: 10,
   speed: 'normal',          // calm | normal | fast
@@ -519,18 +566,29 @@ const PROFILE_DEFAULTS = {
 const ROOT_DEFAULTS = {
   version: 2,
   activeId: '',
-  quality: 'high',          // normal | high | ultra
+  quality: 'ultra',         // normal | high | ultra
   profiles: [],
 };
 
+/** העתקה עמוקה — בלעדיה כמה פרופילים היו חולקים את אותו אובייקט streak/totals */
+function clone(v){
+  if (Array.isArray(v)) return v.map(clone);
+  if (v && typeof v === 'object'){
+    const o = {};
+    for (const k of Object.keys(v)) o[k] = clone(v[k]);
+    return o;
+  }
+  return v;
+}
+
 function deepMerge(base, over){
-  const out = Array.isArray(base) ? base.slice() : { ...base };
+  const out = clone(base);
   for (const k of Object.keys(over || {})){
     const v = over[k];
     if (v && typeof v === 'object' && !Array.isArray(v) && typeof base[k] === 'object' && base[k] !== null){
       out[k] = deepMerge(base[k], v);
     } else if (v !== undefined){
-      out[k] = v;
+      out[k] = clone(v);
     }
   }
   return out;
@@ -624,20 +682,47 @@ function resetSave(){
   try { localStorage.removeItem(KEY); localStorage.removeItem(LEGACY); } catch { /* ignore */ }
 }
 
+/* ---------- פרס יומי ---------- */
+/** מספר היום המקומי — כך "יום חדש" הוא באמת בוקר חדש, לא 24 שעות מאז אתמול */
+function dayNumber(now = new Date()){
+  return Math.floor((now.getTime() - now.getTimezoneOffset() * 60000) / 86400000);
+}
+
+const STREAK_LADDER = [10, 15, 20, 30, 40, 60, 100];
+
+function pendingDailyReward(profile = save){
+  if (!profile) return null;
+  const today = dayNumber();
+  if (profile.streak.lastDay === today) return null;
+  const broken = today - profile.streak.lastDay > 1;
+  const day = broken ? 1 : Math.min(profile.streak.days + 1, STREAK_LADDER.length);
+  return { day, stars: STREAK_LADDER[day - 1], full: day === STREAK_LADDER.length };
+}
+
+function claimDailyReward(profile = save){
+  const reward = pendingDailyReward(profile);
+  if (!reward) return null;
+  profile.streak.days = reward.day % STREAK_LADDER.length === 0 ? 0 : reward.day;
+  profile.streak.lastDay = dayNumber();
+  profile.stars += reward.stars;
+  persist();
+  return reward;
+}
+
 /* ---------- איכות תצוגה ---------- */
 const QUALITY = {
   // dprCap — עד כמה מותר להתקרב לרזולוציה הפיזית של המסך
   // ss     — דגימת־על: מציירים מעל הרזולוציה הפיזית ומקטינים, כדי לקבל קצוות חלקים
   normal: { dprCap: 2, ss: 1.0,  label: 'רגיל'    },
   high:   { dprCap: 3, ss: 1.0,  label: 'גבוה'    },
-  ultra:  { dprCap: 3, ss: 1.35, label: 'מקסימלי' },
+  ultra:  { dprCap: 3, ss: 1.5,  label: 'מקסימלי' },
 };
 
 /* ---------- פרופילי מהירות (עדינים — מותאם לגיל 4) ---------- */
 const SPEEDS = {
-  calm:   { start: 5.5, max: 8.0,  ramp: 0.055, label: 'רגוע'  },
-  normal: { start: 6.8, max: 10.5, ramp: 0.075, label: 'רגיל'  },
-  fast:   { start: 8.0, max: 13.0, ramp: 0.10,  label: 'מהיר'  },
+  calm:   { start: 6.4,  max: 9.4,  ramp: 0.070, label: 'רגוע' },
+  normal: { start: 7.9,  max: 12.3, ramp: 0.090, label: 'רגיל' },
+  fast:   { start: 9.4,  max: 15.2, ramp: 0.125, label: 'מהיר' },
 };
 
 /* ---------- רטט עדין ---------- */
@@ -793,31 +878,34 @@ function hushVoice(){
 }
 
 /* ===== js/characters.js ===== */
-/* ציור דמויות פרוצדורלי — בלי קבצי תמונה, נראה חד בכל רזולוציה.
-   כל דמות מצוירת ביחידות: כפות רגליים ב-y=0, ראש ב-y≈-1, רוחב ~0.62.
+/* ציור דמויות פרוצדורלי — בלי קבצי תמונה, חד בכל רזולוציה.
+   יחידות: כפות רגליים ב-(0,0), ראש ב-y≈-1, רוחב ~0.62.
 
-   דמות = נתונים בלבד. כל אביזר (אוזניים, שיער, כתר, כנפיים, חצאית, פרפר)
-   מצויר מהשדות שלמטה, ולכן הוספת דמות חדשה היא בדרך כלל שורה אחת. */
+   דמות = נתונים. אוזניים, שיער, כתר, כנפיים, קרן, חצאית וכו' הם שדות
+   שהמנוע מפרש, ולכן דמות חדשה היא בדרך כלל שורה אחת.
+   בנוסף יש שכבת אביזרים (כובע/משקפיים/גב/גלגיליות) שאפשר להרכיב על כל דמות. */
+
+const clampUnit = (v, a, b) => v < a ? a : v > b ? b : v;
 
 const CHARACTERS = [
   { id:'fox',      name:'שועלי',   emoji:'🦊', fur:'#ff8a3d', fur2:'#ffd9bd', accent:'#ffffff',
     ears:'point', tail:'bushy' },
 
   { id:'bunny',    name:'שפנפנה',  emoji:'🐰', fur:'#fff0f6', fur2:'#ffffff', accent:'#ff8fb8',
-    ears:'long', bow:'#ff5d8f', tail:'puff', outline:'#e9cfdd' },
+    ears:'long', bow:'#ff5d8f', tail:'puff', outline:'#e6c8d8' },
 
   { id:'cat',      name:'חתולי',   emoji:'🐱', fur:'#9aa4b8', fur2:'#e6ebf5', accent:'#ffffff',
     ears:'point', tail:'thin' },
 
   { id:'princess', name:'נסיכונת', emoji:'👑', fur:'#ffd9bd', fur2:'#fff0e4', accent:'#ffc531',
-    ears:'none', hair:'#7a3f1d', hairStyle:'long', crown:true, skirt:'#ff5d8f', outline:'#e7b795' },
+    ears:'none', hair:'#7a3f1d', hairStyle:'long', crown:true, skirt:'#ff5d8f', outline:'#e0ad8b' },
 
   { id:'penguin',  name:'פינגי',   emoji:'🐧', fur:'#2b3550', fur2:'#ffffff', accent:'#ffc531',
     ears:'none', belly:true, beak:true },
 
   { id:'fairy',    name:'פיונה',   emoji:'🧚', fur:'#ffe0cd', fur2:'#fff3ea', accent:'#9b5cff',
     ears:'none', hair:'#9b5cff', hairStyle:'tails', wings:'#bff0ff', antennae:true, skirt:'#a86bff',
-    outline:'#e8bda6' },
+    outline:'#e3b49b' },
 
   { id:'deer',     name:'עופרי',   emoji:'🦌', fur:'#d9a05b', fur2:'#ffeed6', accent:'#ff8fb8',
     ears:'leaf', antlers:true, flowers:true, tail:'puff' },
@@ -826,10 +914,10 @@ const CHARACTERS = [
     ears:'none', spikes:true, tail:'thin' },
 
   { id:'unicorn',  name:'חדקורן',  emoji:'🦄', fur:'#f7e4ff', fur2:'#fffaff', accent:'#ff5d8f',
-    ears:'point', horn:true, mane:'#ff8fd0', tail:'bushy', outline:'#dcc3e6' },
+    ears:'point', horn:true, mane:'#ff8fd0', tail:'bushy', outline:'#d8bce4' },
 
   { id:'panda',    name:'פנדי',    emoji:'🐼', fur:'#f4f6fb', fur2:'#ffffff', accent:'#2b3550',
-    ears:'round', roundEarColor:'#2b3550', eyePatch:true, outline:'#d9dfe9' },
+    ears:'round', roundEarColor:'#2b3550', eyePatch:true, outline:'#d3dae6' },
 
   { id:'tiger',    name:'טיגי',    emoji:'🐯', fur:'#ffa832', fur2:'#fff1d6', accent:'#2b3550',
     ears:'round', stripes:true, tail:'thin' },
@@ -839,6 +927,39 @@ const CHARACTERS = [
 ];
 
 const charById = id => CHARACTERS.find(c => c.id === id) || CHARACTERS[0];
+
+/* ---------- אביזרים: הכל פתוח תמיד, שום דבר לא נעול ---------- */
+const ACCESSORY_LABELS = { hat: 'כובע', face: 'פנים', back: 'גב', board: 'גלגיליות' };
+
+const ACCESSORIES = {
+  hat:   [
+    { id:'none',   name:'בלי',          emoji:'🚫' },
+    { id:'cap',    name:'כובע מצחייה', emoji:'🧢' },
+    { id:'beanie', name:'כובע צמר',    emoji:'🧶' },
+    { id:'party',  name:'כובע מסיבה', emoji:'🎉' },
+    { id:'crown',  name:'כתר',          emoji:'👑' },
+    { id:'bow',    name:'פפיון',       emoji:'🎀' },
+  ],
+  face:  [
+    { id:'none',    name:'בלי',         emoji:'🚫' },
+    { id:'glasses', name:'משקפיים',   emoji:'👓' },
+    { id:'shades',  name:'משקפי שמש', emoji:'🕶️' },
+    { id:'snorkel', name:'מסכת צלילה', emoji:'🤿' },
+  ],
+  back:  [
+    { id:'none',     name:'בלי',       emoji:'🚫' },
+    { id:'cape',     name:'גלימה',    emoji:'🦸' },
+    { id:'backpack', name:'תיק',       emoji:'🎒' },
+    { id:'wings',    name:'כנפיים',   emoji:'🪽' },
+  ],
+  board: [
+    { id:'classic', name:'גלגיליות',  emoji:'🛹' },
+    { id:'hover',   name:'הוברבורד',  emoji:'🛸' },
+    { id:'rocket',  name:'רקטה',      emoji:'🚀' },
+  ],
+};
+
+const DEFAULT_OUTFIT = { hat:'none', face:'none', back:'none', board:'classic' };
 
 /* ---------- פרימיטיבים ---------- */
 function rr(ctx, x, y, w, h, r){
@@ -856,24 +977,246 @@ function ellipse(ctx, x, y, rx, ry, rot = 0){ ctx.beginPath(); ctx.ellipse(x, y,
 function tri(ctx, ax, ay, bx, by, cx, cy){
   ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx, cy); ctx.closePath();
 }
-function bow(ctx, x, y, r, color){
+function bowShape(ctx, x, y, r, color){
   ctx.fillStyle = color;
   ellipse(ctx, x - r, y, r * 0.95, r * 0.7, -0.35); ctx.fill();
   ellipse(ctx, x + r, y, r * 0.95, r * 0.7, 0.35); ctx.fill();
   ctx.fillStyle = 'rgba(0,0,0,.14)';
   circle(ctx, x, y, r * 0.42); ctx.fill();
 }
+/** גפיים עם קצה מעוגל — יד/כף רגל, במקום קו חשוף */
+function limb(ctx, x1, y1, x2, y2, w, color, capColor, capR){
+  ctx.strokeStyle = color;
+  ctx.lineWidth = w;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  if (capR){
+    ctx.fillStyle = capColor;
+    circle(ctx, x2, y2, capR); ctx.fill();
+  }
+}
 
-/* ---------- ראש ---------- */
-function drawHead(ctx, c, hx, hy, hr, look, outline){
+/* ============================================================
+   אביזרים
+   ============================================================ */
+function drawHat(ctx, id, hx, hy, hr, color){
+  if (!id || id === 'none') return;
+  ctx.save();
+  ctx.translate(hx, hy);
+  switch (id){
+    case 'cap':
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(0, -hr * .62, hr * .92, Math.PI, 0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,.18)';
+      ellipse(ctx, -hr * .74, -hr * .58, hr * .72, hr * .17); ctx.fill();
+      ctx.fillStyle = color;
+      ellipse(ctx, -hr * .74, -hr * .64, hr * .72, hr * .17); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.30)';
+      circle(ctx, 0, -hr * 1.42, hr * .13); ctx.fill();
+      break;
+    case 'beanie':
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(0, -hr * .58, hr * .95, Math.PI, 0); ctx.closePath(); ctx.fill();
+      rr(ctx, -hr * .98, -hr * .70, hr * 1.96, hr * .28, hr * .13); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.32)';
+      rr(ctx, -hr * .98, -hr * .70, hr * 1.96, hr * .28, hr * .13); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      circle(ctx, 0, -hr * 1.62, hr * .22); ctx.fill();
+      break;
+    case 'party':
+      ctx.fillStyle = color;
+      tri(ctx, -hr * .58, -hr * .68, 0, -hr * 1.86, hr * .58, -hr * .68); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.42)';
+      for (let i = 0; i < 3; i++){
+        const k = 0.28 + i * 0.24;
+        tri(ctx, -hr * .58 * (1 - k), -hr * (.68 + 1.18 * k),
+                  0,                  -hr * (.68 + 1.18 * (k + .10)),
+                  hr * .58 * (1 - k), -hr * (.68 + 1.18 * k));
+        ctx.fill();
+      }
+      ctx.fillStyle = '#ffc531';
+      circle(ctx, 0, -hr * 1.92, hr * .18); ctx.fill();
+      break;
+    case 'crown':
+      ctx.fillStyle = '#ffc531';
+      ctx.beginPath();
+      ctx.moveTo(-hr * .62, -hr * .78);
+      ctx.lineTo(-hr * .44, -hr * 1.30);
+      ctx.lineTo(-hr * .20, -hr * .96);
+      ctx.lineTo(0,         -hr * 1.44);
+      ctx.lineTo(hr * .20,  -hr * .96);
+      ctx.lineTo(hr * .44,  -hr * 1.30);
+      ctx.lineTo(hr * .62,  -hr * .78);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ff5d8f';
+      circle(ctx, 0, -hr * 1.00, hr * .09); ctx.fill();
+      break;
+    case 'bow':
+      bowShape(ctx, 0, -hr * 1.00, hr * .34, color);
+      break;
+  }
+  ctx.restore();
+}
+
+function drawFaceGear(ctx, id, hx, hy, hr, color){
+  if (!id || id === 'none') return;
+  ctx.save();
+  ctx.translate(hx, hy);
+  const eyeX = hr * .36, eyeY = -hr * .08;
+  switch (id){
+    case 'glasses':
+      ctx.strokeStyle = '#3b4a72';
+      ctx.lineWidth = hr * .075;
+      circle(ctx, -eyeX, eyeY, hr * .30); ctx.stroke();
+      circle(ctx,  eyeX, eyeY, hr * .30); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-eyeX + hr * .30, eyeY); ctx.lineTo(eyeX - hr * .30, eyeY);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(190,235,255,.42)';
+      circle(ctx, -eyeX, eyeY, hr * .28); ctx.fill();
+      circle(ctx,  eyeX, eyeY, hr * .28); ctx.fill();
+      break;
+    case 'shades':
+      ctx.fillStyle = '#22283f';
+      rr(ctx, -eyeX - hr * .34, eyeY - hr * .26, hr * .66, hr * .48, hr * .16); ctx.fill();
+      rr(ctx,  eyeX - hr * .32, eyeY - hr * .26, hr * .66, hr * .48, hr * .16); ctx.fill();
+      ctx.fillStyle = '#22283f';
+      rr(ctx, -hr * .10, eyeY - hr * .10, hr * .20, hr * .10, hr * .04); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.30)';
+      rr(ctx, -eyeX - hr * .26, eyeY - hr * .18, hr * .22, hr * .12, hr * .05); ctx.fill();
+      break;
+    case 'snorkel':
+      ctx.strokeStyle = color;
+      ctx.lineWidth = hr * .10;
+      rr(ctx, -hr * .74, eyeY - hr * .32, hr * 1.48, hr * .60, hr * .18); ctx.stroke();
+      ctx.fillStyle = 'rgba(160,225,255,.45)';
+      rr(ctx, -hr * .74, eyeY - hr * .32, hr * 1.48, hr * .60, hr * .18); ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = hr * .11;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(hr * .74, eyeY - hr * .10);
+      ctx.quadraticCurveTo(hr * 1.05, eyeY - hr * .30, hr * 1.02, -hr * 1.05);
+      ctx.stroke();
+      break;
+  }
+  ctx.restore();
+}
+
+function drawBackGear(ctx, id, bodyY, bodyH, cycle, color, lean){
+  if (!id || id === 'none') return;
+  const wave = Math.sin(cycle * 0.9);
+  ctx.save();
+  switch (id){
+    case 'cape':
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(-0.15, bodyY + 0.03);
+      ctx.quadraticCurveTo(-0.34 + wave * 0.04 - lean * 0.10, bodyY + bodyH * 0.9,
+                           -0.24 + wave * 0.07 - lean * 0.14, bodyY + bodyH * 1.65);
+      ctx.quadraticCurveTo(0, bodyY + bodyH * 1.42 + wave * 0.02,
+                           0.24 + wave * 0.07 - lean * 0.14, bodyY + bodyH * 1.65);
+      ctx.quadraticCurveTo(0.34 + wave * 0.04 - lean * 0.10, bodyY + bodyH * 0.9,
+                           0.15, bodyY + 0.03);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,.16)';
+      ctx.fill();
+      break;
+    case 'backpack':
+      ctx.fillStyle = color;
+      rr(ctx, -0.17, bodyY + 0.05, 0.34, bodyH * 0.86, 0.09); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,.18)';
+      rr(ctx, -0.11, bodyY + bodyH * 0.55, 0.22, bodyH * 0.30, 0.05); ctx.fill();
+      break;
+    case 'wings': {
+      const flap = 0.20 + Math.abs(Math.sin(cycle * 1.8)) * 0.22;
+      [-1, 1].forEach(sd => {
+        ctx.save();
+        ctx.translate(sd * 0.09, bodyY + 0.10);
+        ctx.rotate(sd * flap);
+        // כנפיים שקופות עם קו מתאר, כדי שייראו גם על רקע בהיר
+        ctx.fillStyle = 'rgba(214,240,255,.92)';
+        ctx.strokeStyle = 'rgba(120,190,235,.95)';
+        ctx.lineWidth = 0.014;
+        ellipse(ctx, sd * 0.22, -0.07, 0.22, 0.12, sd * -0.5); ctx.fill(); ctx.stroke();
+        ellipse(ctx, sd * 0.17,  0.08, 0.16, 0.10, sd * -0.3); ctx.fill(); ctx.stroke();
+        ctx.restore();
+      });
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+function drawBoard(ctx, id, t, lean, color){
+  ctx.save();
+  ctx.rotate(lean * 0.22);
+  const spin = t * 14;
+  switch (id){
+    case 'hover':
+      ctx.fillStyle = '#2b3550';
+      rr(ctx, -0.30, -0.075, 0.60, 0.055, 0.028); ctx.fill();
+      ctx.fillStyle = color;
+      rr(ctx, -0.27, -0.088, 0.54, 0.030, 0.015); ctx.fill();
+      ctx.save();
+      ctx.globalAlpha = 0.55 + Math.sin(t * 9) * 0.16;
+      const gl = ctx.createLinearGradient(0, -0.02, 0, 0.07);
+      gl.addColorStop(0, 'rgba(120,235,255,.95)');
+      gl.addColorStop(1, 'rgba(120,235,255,0)');
+      ctx.fillStyle = gl;
+      rr(ctx, -0.26, -0.020, 0.52, 0.085, 0.03); ctx.fill();
+      ctx.restore();
+      break;
+    case 'rocket':
+      ctx.fillStyle = '#3b4a72';
+      rr(ctx, -0.30, -0.060, 0.60, 0.055, 0.028); ctx.fill();
+      ctx.fillStyle = color;
+      rr(ctx, -0.26, -0.080, 0.52, 0.032, 0.016); ctx.fill();
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      const f = 0.9 + Math.sin(t * 22) * 0.22;
+      ctx.fillStyle = '#ffc531';
+      tri(ctx, 0.28, -0.055, 0.28 + 0.16 * f, -0.030, 0.28, -0.005); ctx.fill();
+      ctx.fillStyle = '#ff6a3d';
+      tri(ctx, 0.29, -0.048, 0.29 + 0.10 * f, -0.030, 0.29, -0.012); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#ffc531';
+      circle(ctx, -0.19, -0.018, 0.030); ctx.fill();
+      circle(ctx,  0.19, -0.018, 0.030); ctx.fill();
+      break;
+    default:
+      ctx.fillStyle = '#26304d';
+      rr(ctx, -0.30, -0.055, 0.60, 0.055, 0.028); ctx.fill();
+      ctx.fillStyle = color;
+      rr(ctx, -0.26, -0.075, 0.52, 0.032, 0.016); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.25)';
+      rr(ctx, -0.26, -0.075, 0.52, 0.014, 0.007); ctx.fill();
+      for (const wx of [-0.19, 0.19]){
+        ctx.fillStyle = '#ffc531';
+        circle(ctx, wx, -0.018, 0.032); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.35)';
+        ctx.lineWidth = 0.008;
+        ctx.beginPath();
+        ctx.moveTo(wx + Math.cos(spin) * 0.020, -0.018 + Math.sin(spin) * 0.020);
+        ctx.lineTo(wx - Math.cos(spin) * 0.020, -0.018 - Math.sin(spin) * 0.020);
+        ctx.stroke();
+      }
+  }
+  ctx.restore();
+}
+
+/* ============================================================
+   ראש
+   ============================================================ */
+function drawHead(ctx, c, hx, hy, hr, look, outline, face){
+  const { expr = 'smile', blink = false } = face || {};
   ctx.save();
   ctx.translate(hx, hy);
 
-  // --- מאחורי הגולגולת ---
+  /* --- מאחורי הגולגולת --- */
   if (c.hair && c.hairStyle === 'long'){
     ctx.fillStyle = c.hair;
     ellipse(ctx, 0, hr * 0.18, hr * 1.10, hr * 1.16); ctx.fill();
-    // שתי מחלפות שמסגרות את הפנים בלי לכסות אותן
     [-1, 1].forEach(sd => {
       ctx.beginPath();
       ctx.moveTo(sd * hr * 0.86, -hr * 0.42);
@@ -911,14 +1254,11 @@ function drawHead(ctx, c, hx, hy, hr, look, outline){
     ctx.strokeStyle = '#a9752f'; ctx.lineWidth = hr * .10; ctx.lineCap = 'round';
     [-1, 1].forEach(sd => {
       ctx.beginPath();
-      ctx.moveTo(sd * hr * .40, -hr * .88);
-      ctx.lineTo(sd * hr * .58, -hr * 1.42);
-      ctx.moveTo(sd * hr * .50, -hr * 1.16);
-      ctx.lineTo(sd * hr * .86, -hr * 1.28);
+      ctx.moveTo(sd * hr * .40, -hr * .88); ctx.lineTo(sd * hr * .58, -hr * 1.42);
+      ctx.moveTo(sd * hr * .50, -hr * 1.16); ctx.lineTo(sd * hr * .86, -hr * 1.28);
       ctx.stroke();
     });
   }
-
   if (c.spikes){
     ctx.fillStyle = c.accent;
     for (let i = 0; i < 3; i++){
@@ -926,7 +1266,6 @@ function drawHead(ctx, c, hx, hy, hr, look, outline){
       tri(ctx, x - hr * .16, -hr * .92, x, -hr * 1.34, x + hr * .16, -hr * .92); ctx.fill();
     }
   }
-
   if (c.horn){
     ctx.fillStyle = '#ffc531';
     tri(ctx, -hr * .15, -hr * .95, 0, -hr * 1.62, hr * .15, -hr * .95); ctx.fill();
@@ -949,20 +1288,22 @@ function drawHead(ctx, c, hx, hy, hr, look, outline){
     ctx.fillStyle = c.accent; circle(ctx, 0, -hr * 1.55, hr * .17); ctx.fill();
   }
 
-  // --- גולגולת ---
-  const skull = ctx.createLinearGradient(0, -hr, 0, hr);
-  skull.addColorStop(0, 'rgba(255,255,255,.34)');
-  skull.addColorStop(0.45, 'rgba(255,255,255,0)');
+  /* --- גולגולת עם נפח --- */
   ctx.fillStyle = c.fur;
   if (c.boxHead) rr(ctx, -hr, -hr, hr * 2, hr * 1.9, hr * .42);
   else circle(ctx, 0, 0, hr);
   ctx.fill();
   if (outline){ ctx.strokeStyle = outline; ctx.lineWidth = hr * .055; ctx.stroke(); }
-  ctx.fillStyle = skull; ctx.fill();
+
+  const vol = ctx.createRadialGradient(-hr * .34, -hr * .40, hr * .10, 0, 0, hr * 1.15);
+  vol.addColorStop(0, 'rgba(255,255,255,.40)');
+  vol.addColorStop(0.55, 'rgba(255,255,255,0)');
+  vol.addColorStop(1, 'rgba(20,30,60,.16)');
+  ctx.fillStyle = vol;
+  ctx.fill();
 
   if (c.stripes){
-    ctx.save();
-    ctx.clip();
+    ctx.save(); ctx.clip();
     ctx.fillStyle = 'rgba(43,53,80,.85)';
     for (let i = 0; i < 3; i++){
       const y = -hr * .72 + i * hr * .30;
@@ -971,14 +1312,13 @@ function drawHead(ctx, c, hx, hy, hr, look, outline){
     }
     ctx.restore();
   }
-
   if (c.eyePatch){
     ctx.fillStyle = c.accent;
     ellipse(ctx, -hr * .40, -hr * .06, hr * .30, hr * .34, -0.28); ctx.fill();
     ellipse(ctx,  hr * .40, -hr * .06, hr * .30, hr * .34,  0.28); ctx.fill();
   }
 
-  // --- פנים בהירות ---
+  /* --- פנים בהירות --- */
   ctx.fillStyle = c.fur2;
   if (c.belly) ellipse(ctx, 0, hr * .12, hr * .72, hr * .72);
   else if (c.boxHead) rr(ctx, -hr * .78, -hr * .62, hr * 1.56, hr * 1.02, hr * .26);
@@ -991,7 +1331,6 @@ function drawHead(ctx, c, hx, hy, hr, look, outline){
     tri(ctx,  hr * .64, -hr * .48,  hr * .42, -hr * 1.06,  hr * .22, -hr * .56); ctx.fill();
   }
 
-  // --- שיער קדמי ---
   if (c.hair){
     ctx.fillStyle = c.hair;
     ctx.beginPath();
@@ -1009,46 +1348,79 @@ function drawHead(ctx, c, hx, hy, hr, look, outline){
     }
   }
 
-  // --- עיניים ---
+  /* --- עיניים והבעה --- */
   const eyeY = -hr * .08, eyeX = hr * .36;
   if (c.boxHead){
     ctx.fillStyle = c.accent;
-    rr(ctx, -eyeX - hr * .19, eyeY - hr * .16, hr * .38, hr * .32, hr * .12); ctx.fill();
-    rr(ctx,  eyeX - hr * .19, eyeY - hr * .16, hr * .38, hr * .32, hr * .12); ctx.fill();
+    const eh = blink ? hr * .08 : hr * .32;
+    rr(ctx, -eyeX - hr * .19, eyeY - eh / 2, hr * .38, eh, hr * .09); ctx.fill();
+    rr(ctx,  eyeX - hr * .19, eyeY - eh / 2, hr * .38, eh, hr * .09); ctx.fill();
+  } else if (blink){
+    ctx.strokeStyle = '#17203a'; ctx.lineWidth = hr * .075; ctx.lineCap = 'round';
+    [-1, 1].forEach(sd => {
+      ctx.beginPath();
+      ctx.arc(sd * eyeX, eyeY - hr * .04, hr * .17, Math.PI * 0.18, Math.PI * 0.82);
+      ctx.stroke();
+    });
+  } else if (expr === 'oops'){
+    ctx.strokeStyle = '#17203a'; ctx.lineWidth = hr * .075; ctx.lineCap = 'round';
+    [-1, 1].forEach(sd => {
+      ctx.beginPath();
+      ctx.arc(sd * eyeX, eyeY + hr * .16, hr * .18, Math.PI * 1.18, Math.PI * 1.82);
+      ctx.stroke();
+    });
   } else {
+    const grow = expr === 'open' ? 1.22 : expr === 'determined' ? 0.86 : 1;
     ctx.fillStyle = '#17203a';
-    ellipse(ctx, -eyeX, eyeY, hr * .155, hr * .175); ctx.fill();
-    ellipse(ctx,  eyeX, eyeY, hr * .155, hr * .175); ctx.fill();
+    ellipse(ctx, -eyeX, eyeY, hr * .155 * grow, hr * .175 * grow); ctx.fill();
+    ellipse(ctx,  eyeX, eyeY, hr * .155 * grow, hr * .175 * grow); ctx.fill();
     ctx.fillStyle = '#fff';
-    circle(ctx, -eyeX + hr * .06 + look * hr * .03, eyeY - hr * .07, hr * .062); ctx.fill();
-    circle(ctx,  eyeX + hr * .06 + look * hr * .03, eyeY - hr * .07, hr * .062); ctx.fill();
+    circle(ctx, -eyeX + hr * .06 + look * hr * .035, eyeY - hr * .07, hr * .062 * grow); ctx.fill();
+    circle(ctx,  eyeX + hr * .06 + look * hr * .035, eyeY - hr * .07, hr * .062 * grow); ctx.fill();
     ctx.globalAlpha = .55;
     circle(ctx, -eyeX - hr * .05, eyeY + hr * .06, hr * .030); ctx.fill();
     circle(ctx,  eyeX - hr * .05, eyeY + hr * .06, hr * .030); ctx.fill();
     ctx.globalAlpha = 1;
   }
 
-  // --- אף / מקור / חיוך ---
+  /* --- אף / מקור / פה --- */
   if (c.beak){
     ctx.fillStyle = c.accent;
     tri(ctx, -hr * .20, hr * .18, hr * .34, hr * .30, -hr * .20, hr * .42); ctx.fill();
   } else if (c.boxHead){
     ctx.strokeStyle = '#17203a'; ctx.lineWidth = hr * .08; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(-hr * .22, hr * .5); ctx.lineTo(hr * .22, hr * .5); ctx.stroke();
+    ctx.beginPath();
+    if (expr === 'open'){ ctx.arc(0, hr * .42, hr * .18, 0, Math.PI); }
+    else { ctx.moveTo(-hr * .22, hr * .5); ctx.lineTo(hr * .22, hr * .5); }
+    ctx.stroke();
   } else {
     ctx.fillStyle = '#17203a';
     ellipse(ctx, 0, hr * .25, hr * .105, hr * .085); ctx.fill();
     ctx.strokeStyle = '#17203a'; ctx.lineWidth = hr * .07; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.arc(0, hr * .26, hr * .26, Math.PI * 0.18, Math.PI * 0.82); ctx.stroke();
+    if (expr === 'open'){
+      ctx.fillStyle = '#17203a';
+      ellipse(ctx, 0, hr * .48, hr * .16, hr * .19); ctx.fill();
+      ctx.fillStyle = '#ff7d9c';
+      ellipse(ctx, 0, hr * .54, hr * .10, hr * .10); ctx.fill();
+    } else if (expr === 'determined'){
+      ctx.beginPath(); ctx.moveTo(-hr * .16, hr * .46); ctx.lineTo(hr * .16, hr * .46); ctx.stroke();
+    } else if (expr === 'oops'){
+      ctx.beginPath();
+      ctx.moveTo(-hr * .18, hr * .50);
+      ctx.quadraticCurveTo(-hr * .06, hr * .40, 0, hr * .50);
+      ctx.quadraticCurveTo(hr * .06, hr * .60, hr * .18, hr * .50);
+      ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(0, hr * .26, hr * .26, Math.PI * 0.18, Math.PI * 0.82); ctx.stroke();
+    }
   }
 
-  // --- לחיים ורודות ---
-  ctx.fillStyle = 'rgba(255,120,150,.30)';
+  ctx.fillStyle = 'rgba(255,120,150,.32)';
   ellipse(ctx, -hr * .62, hr * .30, hr * .19, hr * .13); ctx.fill();
   ellipse(ctx,  hr * .62, hr * .30, hr * .19, hr * .13); ctx.fill();
 
-  // --- אביזרים עליונים ---
-  if (c.bow)      bow(ctx, hr * .62, -hr * .86, hr * .26, c.bow);
+  /* --- אביזרים מובנים בדמות --- */
+  if (c.bow) bowShape(ctx, hr * .62, -hr * .86, hr * .26, c.bow);
   if (c.antennae){
     ctx.strokeStyle = c.hair || '#9b5cff'; ctx.lineWidth = hr * .07; ctx.lineCap = 'round';
     [-1, 1].forEach(sd => {
@@ -1092,18 +1464,33 @@ function drawHead(ctx, c, hx, hy, hr, look, outline){
 
 /**
  * מצייר דמות. הרגליים ב-(0,0), הגובה הכולל ≈ 1 יחידה.
- * opts: { pose:'run'|'jump'|'slide'|'idle', t, color, board }
+ * opts: { pose, t, color, board, outfit, lean, vy, squash, expr }
  */
 function drawCharacter(ctx, id, opts = {}){
   const c = charById(id);
-  const { pose = 'run', t = 0, color = '#3aa0ff', board = true } = opts;
+  const {
+    pose = 'run', t = 0, color = '#3aa0ff', board = true,
+    outfit = DEFAULT_OUTFIT, lean = 0, vy = 0, squash = 0,
+  } = opts;
 
   const cycle = t * 10;
   const swing = Math.sin(cycle);
   const bob   = pose === 'run' ? Math.abs(Math.sin(cycle)) * 0.035 : 0;
 
+  // מתיחה בעלייה, כיווץ בנחיתה — נותן לקפיצה משקל
+  const stretch = clampUnit(vy * 0.042, -0.10, 0.15) - squash * 0.20;
+  const sy = 1 + stretch;
+  const sx = 1 - stretch * 0.55;
+
+  const expr = opts.expr || (pose === 'jump' ? 'open' : pose === 'slide' ? 'determined' : 'smile');
+  // מצמוץ פעם ב־3.4 שניות
+  const blink = ((t * 1000) % 3400) < 120;
+
   ctx.save();
   ctx.lineJoin = 'round';
+
+  // גלגיליות — נשארות על הקרקע, רק מתנדנדות
+  if (board) drawBoard(ctx, outfit.board, t, lean, color);
 
   if (pose === 'slide'){
     ctx.translate(0, -0.16);
@@ -1111,23 +1498,20 @@ function drawCharacter(ctx, id, opts = {}){
     ctx.scale(1, 0.92);
   }
 
+  ctx.rotate(lean * 0.20);
+  ctx.scale(sx, sy);
+
   const baseY  = -0.09 - bob;
   const legLen = 0.24;
   const bodyH  = 0.32;
   const bodyY  = baseY - legLen - bodyH + 0.02;
+  const hr     = 0.185;
+  const headY  = bodyY - hr * 0.72;
 
-  // גלגיליות
-  if (board && pose !== 'jump'){
-    ctx.fillStyle = '#26304d';
-    rr(ctx, -0.30, -0.055, 0.60, 0.055, 0.028); ctx.fill();
-    ctx.fillStyle = color;
-    rr(ctx, -0.26, -0.075, 0.52, 0.032, 0.016); ctx.fill();
-    ctx.fillStyle = '#ffc531';
-    circle(ctx, -0.19, -0.018, 0.030); ctx.fill();
-    circle(ctx,  0.19, -0.018, 0.030); ctx.fill();
-  }
+  // אביזר גב (מאחורי הכל)
+  drawBackGear(ctx, outfit.back, bodyY, bodyH, cycle, color, lean);
 
-  // כנפיים (מאחורי הכל)
+  // כנפיים מובנות (פיונה)
   if (c.wings){
     const flap = 0.22 + Math.abs(Math.sin(cycle * 1.8)) * 0.20;
     ctx.save();
@@ -1144,102 +1528,91 @@ function drawCharacter(ctx, id, opts = {}){
     ctx.restore();
   }
 
-  // זנב
+  // זנב — נגרר אחרי הפנייה
+  const wag = swing * 0.045 - lean * 0.05;
   if (c.tail === 'bushy' || c.tail === 'thin'){
-    const wag = swing * 0.045;
     ctx.strokeStyle = c.fur;
     ctx.lineWidth = c.tail === 'bushy' ? 0.10 : 0.066;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(0.11, bodyY + bodyH * 0.78);
-    ctx.quadraticCurveTo(0.30, bodyY + bodyH * 0.86 + wag, 0.30, bodyY + bodyH * 1.42 + wag);
+    ctx.quadraticCurveTo(0.30 - lean * 0.06, bodyY + bodyH * 0.86 + wag, 0.30 - lean * 0.10, bodyY + bodyH * 1.42 + wag);
     ctx.stroke();
     if (c.tail === 'bushy'){
       ctx.fillStyle = c.fur2;
-      circle(ctx, 0.30, bodyY + bodyH * 1.42 + wag, 0.045); ctx.fill();
+      circle(ctx, 0.30 - lean * 0.10, bodyY + bodyH * 1.42 + wag, 0.045); ctx.fill();
     }
   } else if (c.tail === 'puff'){
     ctx.fillStyle = c.fur2;
-    circle(ctx, 0.19, bodyY + bodyH * 1.00 + swing * 0.02, 0.058); ctx.fill();
+    circle(ctx, 0.19 - lean * 0.05, bodyY + bodyH * 1.00 + swing * 0.02, 0.058); ctx.fill();
   }
 
-  // רגליים
-  ctx.strokeStyle = c.fur;
-  ctx.lineWidth = 0.095;
-  ctx.lineCap = 'round';
+  // רגליים + נעליים
   const legPhase = pose === 'jump' ? 0.55 : pose === 'slide' ? 0.9 : swing * 0.55;
+  const shoe = '#2b3550';
   const legs = [[-1, legPhase], [1, -legPhase]];
-  if (c.outline){
-    ctx.save();
-    ctx.strokeStyle = c.outline;
-    ctx.lineWidth = 0.095 + 0.022;
-    legs.forEach(([side, ph]) => {
-      ctx.beginPath();
-      ctx.moveTo(side * 0.085, baseY - legLen);
-      ctx.lineTo(side * 0.085 + ph * 0.13, baseY - (pose === 'jump' ? 0.10 : 0.005));
-      ctx.stroke();
-    });
-    ctx.restore();
+  for (const [side, ph] of legs){
+    const x1 = side * 0.085, y1 = baseY - legLen;
+    const x2 = side * 0.085 + ph * 0.13, y2 = baseY - (pose === 'jump' ? 0.10 : 0.005);
+    if (c.outline) limb(ctx, x1, y1, x2, y2, 0.117, c.outline, null, 0);
+    limb(ctx, x1, y1, x2, y2, 0.095, c.fur, shoe, 0.050);
   }
-  legs.forEach(([side, ph]) => {
-    ctx.beginPath();
-    ctx.moveTo(side * 0.085, baseY - legLen);
-    ctx.lineTo(side * 0.085 + ph * 0.13, baseY - (pose === 'jump' ? 0.10 : 0.005));
-    ctx.stroke();
-  });
 
   // גוף
-  const bodyGrad = ctx.createLinearGradient(0, bodyY, 0, bodyY + bodyH);
-  bodyGrad.addColorStop(0, 'rgba(255,255,255,.30)');
-  bodyGrad.addColorStop(0.55, 'rgba(255,255,255,0)');
-  bodyGrad.addColorStop(1, 'rgba(0,0,0,.10)');
+  const bodyGrad = ctx.createLinearGradient(-0.145, bodyY, 0.145, bodyY + bodyH);
+  bodyGrad.addColorStop(0, 'rgba(255,255,255,.34)');
+  bodyGrad.addColorStop(0.5, 'rgba(255,255,255,0)');
+  bodyGrad.addColorStop(1, 'rgba(0,0,0,.14)');
   ctx.fillStyle = color;
   rr(ctx, -0.145, bodyY, 0.29, bodyH, 0.11); ctx.fill();
   ctx.fillStyle = bodyGrad;
   rr(ctx, -0.145, bodyY, 0.29, bodyH, 0.11); ctx.fill();
+  // אור שוליים
+  ctx.strokeStyle = 'rgba(255,255,255,.42)';
+  ctx.lineWidth = 0.016;
+  ctx.beginPath();
+  ctx.moveTo(-0.128, bodyY + bodyH - 0.06);
+  ctx.quadraticCurveTo(-0.145, bodyY + 0.05, -0.075, bodyY + 0.012);
+  ctx.stroke();
 
-  // חצאית / טוטו
   if (c.skirt){
     ctx.fillStyle = c.skirt;
     ctx.beginPath();
     ctx.moveTo(-0.145, bodyY + bodyH * 0.58);
     ctx.lineTo(0.145,  bodyY + bodyH * 0.58);
-    ctx.quadraticCurveTo(0.255, bodyY + bodyH * 1.06, 0.205, bodyY + bodyH * 1.20);
-    ctx.quadraticCurveTo(0, bodyY + bodyH * 1.34, -0.205, bodyY + bodyH * 1.20);
-    ctx.quadraticCurveTo(-0.255, bodyY + bodyH * 1.06, -0.145, bodyY + bodyH * 0.58);
+    ctx.quadraticCurveTo(0.255 - lean * 0.04, bodyY + bodyH * 1.06, 0.205 - lean * 0.06, bodyY + bodyH * 1.20);
+    ctx.quadraticCurveTo(0, bodyY + bodyH * 1.34, -0.205 - lean * 0.06, bodyY + bodyH * 1.20);
+    ctx.quadraticCurveTo(-0.255 - lean * 0.04, bodyY + bodyH * 1.06, -0.145, bodyY + bodyH * 0.58);
     ctx.closePath(); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,.22)';
     ctx.fill();
   }
 
-  // ידיים
-  ctx.strokeStyle = c.fur;
-  ctx.lineWidth = 0.072;
+  // ידיים + כפות
   const armPhase = pose === 'jump' ? -1.0 : pose === 'slide' ? 0.6 : -swing * 0.6;
   const arms = [[-1, armPhase], [1, -armPhase]];
-  const strokeArms = () => arms.forEach(([side, ph]) => {
-    ctx.beginPath();
-    ctx.moveTo(side * 0.125, bodyY + 0.075);
-    ctx.lineTo(side * (0.175 + Math.abs(ph) * 0.02), bodyY + 0.075 + (pose === 'jump' ? -0.13 : 0.115) + ph * side * 0.045);
-    ctx.stroke();
-  });
-  if (c.outline){
-    ctx.save();
-    ctx.strokeStyle = c.outline;
-    ctx.lineWidth = 0.072 + 0.022;
-    strokeArms();
-    ctx.restore();
+  for (const [side, ph] of arms){
+    const x1 = side * 0.125, y1 = bodyY + 0.075;
+    const x2 = side * (0.175 + Math.abs(ph) * 0.02);
+    const y2 = bodyY + 0.075 + (pose === 'jump' ? -0.13 : 0.115) + ph * side * 0.045;
+    if (c.outline) limb(ctx, x1, y1, x2, y2, 0.094, c.outline, null, 0);
+    limb(ctx, x1, y1, x2, y2, 0.072, c.fur, c.fur2, 0.042);
   }
-  strokeArms();
 
-  // ראש
-  drawHead(ctx, c, 0, bodyY - 0.185 * 0.72, 0.185, pose === 'run' ? swing : 0, c.outline);
+  // ראש — נגרר קלות אחרי הפנייה
+  ctx.save();
+  ctx.translate(-lean * 0.018, 0);
+  ctx.rotate(-lean * 0.10);
+  drawHead(ctx, c, 0, headY, hr, pose === 'run' ? swing : lean * 2, c.outline, { expr, blink });
+  drawFaceGear(ctx, outfit.face, 0, headY, hr, color);
+  drawHat(ctx, outfit.hat, 0, headY, hr, color);
+  ctx.restore();
 
   ctx.restore();
 }
 
-/** תצוגה מקדימה בקנבס נפרד (מסך הבית / בורר הדמויות) */
-function paintPreview(canvas, id, color, t = 0, pose = 'run', dprCap = 3){
+/** תצוגה מקדימה בקנבס נפרד */
+function paintPreview(canvas, id, color, t = 0, pose = 'run', outfit = DEFAULT_OUTFIT, dprCap = 3){
   const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
   const w = canvas.clientWidth || 120, h = canvas.clientHeight || 120;
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)){
@@ -1251,15 +1624,13 @@ function paintPreview(canvas, id, color, t = 0, pose = 'run', dprCap = 3){
   ctx.imageSmoothingQuality = 'high';
   ctx.clearRect(0, 0, w, h);
 
-  const unit = h * 0.80;
+  const unit = h * 0.78;
   ctx.save();
   ctx.translate(w / 2, h * 0.94);
-
   ctx.fillStyle = 'rgba(13,27,62,.14)';
   ellipse(ctx, 0, 0, unit * 0.26, unit * 0.055); ctx.fill();
-
   ctx.scale(unit, unit);
-  drawCharacter(ctx, id, { pose, t, color });
+  drawCharacter(ctx, id, { pose, t, color, outfit, lean: Math.sin(t * 1.6) * 0.12 });
   ctx.restore();
 }
 
@@ -1530,14 +1901,15 @@ function drawSideScenery(ctx, view, pal, scrollZ){
 
 function drawRock(ctx, x, y, s, pal, seed){
   const r = s * (0.10 + (seed % 3) * 0.035);
-  ctx.fillStyle = mixHex('#9aa3b8', '#2a2f4d', pal.night * 0.8);
+  const base = mixHex('#9aa3b8', '#2a2f4d', pal.night * 0.8);
+  drawShadow(ctx, x, y, s * 0.5, 0.14);
+  const g = ctx.createLinearGradient(x + r * SUN_DIR, y - r * 1.2, x - r * SUN_DIR, y);
+  g.addColorStop(0, shade(base, 0.16));
+  g.addColorStop(1, shade(base, -0.14));
+  ctx.fillStyle = g;
   ctx.beginPath();
   ctx.ellipse(x, y - r * 0.4, r * 1.35, r, 0, Math.PI, 0);
   ctx.closePath(); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,.22)';
-  ctx.beginPath();
-  ctx.ellipse(x - r * 0.35, y - r * 0.62, r * 0.42, r * 0.24, -0.4, 0, Math.PI * 2);
-  ctx.fill();
 }
 
 function drawShrub(ctx, x, y, s, pal, seed){
@@ -1567,15 +1939,23 @@ function drawFlower(ctx, x, y, s, pal, seed){
 
 function drawTree(ctx, x, y, s, pal, seed){
   const h = (1.5 + (seed % 4) * 0.22) * s;
-  ctx.fillStyle = mixHex('#8a5a34', '#2a2540', pal.night);
-  ctx.fillRect(x - s * 0.05, y - h * 0.42, s * 0.10, h * 0.42);
-  const crown = mixHex(seed % 2 ? '#35b866' : '#2f9f5b', '#10402c', pal.night * 0.85);
-  ctx.fillStyle = crown;
+  drawShadow(ctx, x, y, s * 1.1, 0.16);
+  const bark = mixHex('#8a5a34', '#2a2540', pal.night);
+  ctx.fillStyle = bark;
+  ctx.fillRect(x - s * 0.055, y - h * 0.42, s * 0.11, h * 0.42);
+  ctx.fillStyle = shade(bark, 0.10);
+  ctx.fillRect(x + SUN_DIR * s * 0.012, y - h * 0.42, s * 0.043, h * 0.42);
+
+  const light = mixHex(seed % 2 ? '#5fd98d' : '#4cc97c', '#1a5a3c', pal.night * 0.85);
+  const dark  = mixHex(seed % 2 ? '#238f52' : '#1d7d49', '#0d3526', pal.night * 0.85);
   for (let i = 0; i < 3; i++){
-    const r = s * (0.34 - i * 0.06);
-    ctx.beginPath();
-    ctx.arc(x, y - h * (0.40 + i * 0.20), r, 0, Math.PI * 2);
-    ctx.fill();
+    const r = s * (0.36 - i * 0.062);
+    const cy = y - h * (0.40 + i * 0.20);
+    const g = ctx.createRadialGradient(x + r * 0.45 * SUN_DIR, cy - r * 0.45, r * 0.1, x, cy, r);
+    g.addColorStop(0, light);
+    g.addColorStop(1, dark);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill();
   }
 }
 
@@ -1598,12 +1978,65 @@ function drawLamp(ctx, x, y, s, pal){
 /* ============================================================
    אביזרים
    ============================================================ */
+/** השמש יושבת מימין־למעלה, ולכן כל התאורה והצללים בסצנה עקביים איתה */
+const SUN_DIR = 1;
+
+/**
+ * קופסה בפרספקטיבה אמיתית: שמונה פינות מוקרנות, שלוש פאות מוצללות.
+ * z = מרכז הקופסה, wx = מיקום רוחבי, w/h/d = רוחב/גובה/עומק ביחידות עולם.
+ */
+function drawBox3D(ctx, view, z, wx, w, h, d, base, opts = {}){
+  const y0 = opts.y0 || 0;          // גובה הבסיס מעל הקרקע
+  const y1 = y0 + h;
+  const zF = Math.max(z - d / 2, 0.15);
+  const zB = z + d / 2;
+  const pt = (zz, x, y) => project(view, zz, x, y);
+
+  const fbl = pt(zF, wx - w / 2, y0), fbr = pt(zF, wx + w / 2, y0);
+  const ftl = pt(zF, wx - w / 2, y1), ftr = pt(zF, wx + w / 2, y1);
+  const bbl = pt(zB, wx - w / 2, y0), bbr = pt(zB, wx + w / 2, y0);
+  const btl = pt(zB, wx - w / 2, y1), btr = pt(zB, wx + w / 2, y1);
+
+  const poly = pts => {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    ctx.fill();
+    if (opts.edge){ ctx.strokeStyle = opts.edge; ctx.lineWidth = Math.max(1, fbl.s * 0.02); ctx.stroke(); }
+  };
+
+  // גג (או תחתית, אם הקופסה מרחפת מעל גובה העין)
+  ctx.fillStyle = shade(base, 0.16);
+  poly([btl, btr, ftr, ftl]);
+  if (y0 > 0.05){
+    ctx.fillStyle = shade(base, -0.22);
+    poly([bbl, bbr, fbr, fbl]);
+  }
+
+  // רק אחת מפאות הצד נראית, לפי הצד שבו הקופסה נמצאת ביחס למצלמה
+  const showsLeftFace = wx > 0;
+  const sideLit = showsLeftFace ? SUN_DIR < 0 : SUN_DIR > 0;
+  ctx.fillStyle = shade(base, sideLit ? 0.04 : -0.14);
+  poly(showsLeftFace ? [ftl, btl, bbl, fbl] : [ftr, btr, bbr, fbr]);
+
+  // פאה קדמית
+  ctx.fillStyle = base;
+  poly([ftl, ftr, fbr, fbl]);
+
+  return { fbl, fbr, ftl, ftr, s: fbl.s };
+}
+
 function drawShadow(ctx, x, y, s, alpha = 0.22){
   if (alpha <= 0.001) return;
   ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#0d1b3e';
-  ctx.beginPath(); ctx.ellipse(x, y, s * 0.30, s * 0.085, 0, 0, Math.PI * 2); ctx.fill();
+  // הצל נופל הפוך לשמש, ומתרכך בשוליים
+  const cx = x - SUN_DIR * s * 0.10;
+  const g = ctx.createRadialGradient(cx, y, s * 0.03, cx, y, s * 0.34);
+  g.addColorStop(0, `rgba(13,27,62,${alpha})`);
+  g.addColorStop(1, 'rgba(13,27,62,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(cx, y, s * 0.34, s * 0.10, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -1645,40 +2078,75 @@ function drawGemProp(ctx, x, y, s, spin, glow = true){
 
 function drawBush(ctx, x, y, s){
   drawShadow(ctx, x, y, s);
-  ctx.fillStyle = '#2f9f5b';
-  for (const [dx, dy, r] of [[-0.16, 0, .20], [0.16, 0, .20], [0, -0.10, .24]]){
-    ctx.beginPath(); ctx.arc(x + dx * s, y - s * 0.16 + dy * s, r * s, 0, Math.PI * 2); ctx.fill();
+  for (const [dx, dy, r] of [[-0.17, 0, .21], [0.17, 0, .21], [0, -0.12, .26]]){
+    const cx = x + dx * s, cy = y - s * 0.17 + dy * s, rad = r * s;
+    const g = ctx.createRadialGradient(cx + rad * 0.42 * SUN_DIR, cy - rad * 0.42, rad * 0.12, cx, cy, rad);
+    g.addColorStop(0, '#68d98f');
+    g.addColorStop(0.6, '#35ab63');
+    g.addColorStop(1, '#1f7a45');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.fillStyle = '#43c377';
-  ctx.beginPath(); ctx.arc(x - s * 0.06, y - s * 0.30, s * 0.12, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ff5d8f';
-  ctx.beginPath(); ctx.arc(x + s * 0.13, y - s * 0.26, s * 0.045, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + s * 0.13, y - s * 0.30, s * 0.05, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath(); ctx.arc(x - s * 0.14, y - s * 0.22, s * 0.04, 0, Math.PI * 2); ctx.fill();
 }
 
-function drawCrate(ctx, x, y, s){
-  drawShadow(ctx, x, y, s);
-  const w = s * 0.52, h = s * 0.72;
-  ctx.fillStyle = '#d79a4f';
-  ctx.fillRect(x - w / 2, y - h, w, h);
-  ctx.fillStyle = '#b57a34';
-  ctx.fillRect(x - w / 2, y - h, w, h * 0.14);
-  ctx.strokeStyle = '#8f5f26'; ctx.lineWidth = Math.max(1.5, s * 0.035);
-  ctx.strokeRect(x - w / 2, y - h, w, h);
+/** ארגז עץ — קובייה אמיתית עם גג, צד וקדמה מוצללים */
+function drawCrate(ctx, view, z, wx, tint = 0){
+  const ground = project(view, z, wx);
+  drawShadow(ctx, ground.x, ground.y, ground.s);
+  const box = drawBox3D(ctx, view, z, wx, 0.64, 0.82, 0.64,
+    shade('#d79a4f', tint), { edge: 'rgba(122,80,32,.55)' });
+
+  // קרשים ואלכסונים על הפאה הקדמית
+  const { ftl, ftr, fbl, fbr } = box;
+  ctx.save();
   ctx.beginPath();
-  ctx.moveTo(x - w / 2, y - h); ctx.lineTo(x + w / 2, y);
-  ctx.moveTo(x + w / 2, y - h); ctx.lineTo(x - w / 2, y);
+  ctx.moveTo(ftl.x, ftl.y); ctx.lineTo(ftr.x, ftr.y);
+  ctx.lineTo(fbr.x, fbr.y); ctx.lineTo(fbl.x, fbl.y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(122,80,32,.5)';
+  ctx.lineWidth = Math.max(1.2, box.s * 0.03);
+  ctx.beginPath();
+  ctx.moveTo(ftl.x, ftl.y); ctx.lineTo(fbr.x, fbr.y);
+  ctx.moveTo(ftr.x, ftr.y); ctx.lineTo(fbl.x, fbl.y);
   ctx.stroke();
+  ctx.fillStyle = 'rgba(181,122,52,.85)';
+  ctx.fillRect(Math.min(ftl.x, fbl.x), ftl.y, Math.abs(ftr.x - ftl.x), (fbl.y - ftl.y) * 0.16);
+  ctx.fillRect(Math.min(ftl.x, fbl.x), fbl.y - (fbl.y - ftl.y) * 0.16, Math.abs(fbr.x - fbl.x), (fbl.y - ftl.y) * 0.16);
+  ctx.restore();
 }
 
-function drawBar(ctx, x, y, s){
-  const w = s * 0.66;
-  const top = y - s * 1.30, bot = y - s * 0.62;
-  ctx.fillStyle = '#ff5d8f';
-  ctx.fillRect(x - w / 2, top, w, bot - top);
-  ctx.fillStyle = '#ffffff';
-  for (let i = 0; i < 3; i++) ctx.fillRect(x - w / 2 + i * w / 3 + w * 0.07, top, w * 0.10, bot - top);
-  ctx.fillStyle = '#c9376a';
-  ctx.fillRect(x - w / 2, bot - s * 0.06, w, s * 0.06);
+/** מוט עילי — קורה תלת־ממדית שתלויה מעל המסלול, על שני עמודים */
+function drawBar(ctx, view, z, wx){
+  const ground = project(view, z, wx);
+  drawShadow(ctx, ground.x, ground.y, ground.s, 0.16);
+  // עמודים
+  for (const sd of [-1, 1]){
+    drawBox3D(ctx, view, z, wx + sd * 0.46, 0.11, 1.28, 0.11, '#c9376a');
+  }
+  // הקורה עצמה — מרחפת בגובה שצריך להתכופף מתחתיו
+  const beam = drawBox3D(ctx, view, z, wx, 1.02, 0.40, 0.28, '#ff5d8f',
+    { edge: 'rgba(160,40,80,.5)', y0: 0.72 });
+  const { ftl, ftr, fbl } = beam;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(ftl.x, ftl.y); ctx.lineTo(ftr.x, ftr.y);
+  ctx.lineTo(beam.fbr.x, beam.fbr.y); ctx.lineTo(fbl.x, fbl.y);
+  ctx.closePath(); ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  const bw = ftr.x - ftl.x;
+  for (let i = 0; i < 4; i++){
+    ctx.save();
+    ctx.translate(ftl.x + bw * (0.08 + i * 0.24), ftl.y);
+    ctx.transform(1, 0, -0.45, 1, 0, 0);
+    ctx.fillRect(0, 0, bw * 0.10, fbl.y - ftl.y);
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
 function drawMagnet(ctx, x, y, s, spin){
@@ -1886,9 +2354,9 @@ const Game = {
       מתעלמים מהשניות הראשונות — שם תמיד יש גמגום התחלתי. */
   watchFrameRate(dt){
     this.fpsWarmup += dt;
-    if (this.fpsWarmup < 3) return;
+    if (this.fpsWarmup < 2.5) return;
     this.fpsAcc += dt; this.fpsFrames++;
-    if (this.fpsAcc < 2.5) return;
+    if (this.fpsAcc < 2) return;
     const fps = this.fpsFrames / this.fpsAcc;
     this.fpsAcc = 0; this.fpsFrames = 0;
     if (fps < 40 && this.autoScale > 0.6){
@@ -1986,7 +2454,7 @@ const Game = {
   /* --------- ניהול ריצה --------- */
   resetRun(){
     const prof = SPEEDS[save.speed] || SPEEDS.normal;
-    this.p = { lane: 1, laneVis: 1, y: 0, vy: 0, slide: 0, stumble: 0, invuln: 0, shield: 0, magnet: 0, jumpBuffer: 0 };
+    this.p = { lane: 1, laneVis: 1, y: 0, vy: 0, slide: 0, stumble: 0, invuln: 0, shield: 0, magnet: 0, jumpBuffer: 0, squash: 0, lean: 0 };
     this.speed = prof.start;
     this.prof = prof;
     this.scrollZ = 0;
@@ -2001,6 +2469,8 @@ const Game = {
     this.slotIndex = 0;
     this.gateCountdown = 5;
     this.shake = 0;
+    this.camX = 0;
+    this.dustAt = 0;
     this.treehouseZ = null;
     this.nextMilestone = 25;
     this.runT = 0;
@@ -2059,7 +2529,7 @@ const Game = {
     if (roll < 0.55){
       // מכשול בודד — תמיד נשארים שני מסלולים פנויים
       const lane = randInt(0, 2);
-      this.ents.push({ kind: Math.random() < 0.5 ? 'bush' : 'crate', lane, z: Z_SPAWN });
+      this.ents.push({ kind: Math.random() < 0.5 ? 'bush' : 'crate', lane, z: Z_SPAWN, tint: rand(-0.05, 0.05) });
       if (Math.random() < 0.6){
         const free = [0, 1, 2].filter(l => l !== lane);
         this.ents.push({ kind: 'star', lane: pick(free), z: Z_SPAWN, y: 0.35, spin: 0 });
@@ -2071,7 +2541,7 @@ const Game = {
       // שני מכשולים — מסלול אחד תמיד פתוח, והכוכב מסמן אותו
       const blocked = [0, 1, 2].sort(() => Math.random() - 0.5).slice(0, 2);
       const open = [0, 1, 2].find(l => !blocked.includes(l));
-      blocked.forEach(l => this.ents.push({ kind: 'crate', lane: l, z: Z_SPAWN }));
+      blocked.forEach(l => this.ents.push({ kind: 'crate', lane: l, z: Z_SPAWN, tint: rand(-0.05, 0.05) }));
       this.ents.push({ kind: 'star', lane: open, z: Z_SPAWN, y: 0.35, spin: 0 });
       this.ents.push({ kind: 'star', lane: open, z: Z_SPAWN + 1.6, y: 0.35, spin: 0 });
       return;
@@ -2109,11 +2579,26 @@ const Game = {
   },
 
   /* --------- חלקיקים --------- */
+  puff(x, y, s, n = 8, alpha = 0.5){
+    for (let i = 0; i < n; i++){
+      this.parts.push({
+        kind: 'dust', x, y: y - s * 0.02,
+        vx: rand(-90, 90), vy: rand(-70, -10),
+        life: rand(0.3, 0.6), t: 0, r: rand(s * 0.05, s * 0.11),
+        color: `rgba(226,232,246,${alpha})`, grav: 40,
+      });
+    }
+  },
+
+  floatText(x, y, text, color){
+    this.parts.push({ kind: 'text', x, y, vx: 0, vy: -90, life: 0.75, t: 0, text, color, grav: 0, r: 0 });
+  },
+
   burst(x, y, color, n = 10){
     for (let i = 0; i < n; i++){
       this.parts.push({
-        x, y, vx: rand(-160, 160), vy: rand(-260, -60),
-        life: rand(0.4, 0.8), t: 0, color, r: rand(2.5, 6),
+        kind: 'spark', x, y, vx: rand(-160, 160), vy: rand(-260, -60),
+        life: rand(0.4, 0.8), t: 0, color, r: rand(2.5, 6), grav: 620,
       });
     }
   },
@@ -2153,7 +2638,7 @@ const Game = {
     this.meters += move * 1.1;
 
     // טיימרים
-    for (const k of ['slide', 'stumble', 'invuln', 'shield', 'magnet', 'jumpBuffer']){
+    for (const k of ['slide', 'stumble', 'invuln', 'shield', 'magnet', 'jumpBuffer', 'squash']){
       if (this.p[k] > 0) this.p[k] = Math.max(0, this.p[k] - dt);
     }
     this.shake = Math.max(0, this.shake - dt * 3.2);
@@ -2164,12 +2649,32 @@ const Game = {
       this.p.y += this.p.vy * dt;
       if (this.p.y <= 0){
         this.p.y = 0;
-        if (this.p.vy < -1) sfx.land();
+        if (this.p.vy < -1){
+          sfx.land();
+          this.p.squash = 0.18;
+          const g = this.projPlayer();
+          this.puff(g.x, g.y, g.s, 9);
+        }
         this.p.vy = 0;
         if (this.p.jumpBuffer > 0) this.liftOff();
       }
     }
+    const prevLaneVis = this.p.laneVis;
     this.p.laneVis = lerp(this.p.laneVis, this.p.lane, Math.min(1, dt * 16));
+    // הטיה לכיוון הפנייה — הדמות והמצלמה נוטות יחד
+    const laneVel = (this.p.laneVis - prevLaneVis) / Math.max(dt, 0.001);
+    this.p.lean = lerp(this.p.lean, clamp(laneVel * 0.42, -1, 1), Math.min(1, dt * 10));
+    this.camX = lerp(this.camX, laneX(this.p.laneVis) * 0.16, Math.min(1, dt * 7));
+
+    // אבק מתחת לגלגיליות
+    if (this.p.y <= 0.01 && this.state !== 'idle'){
+      this.dustAt -= dt;
+      if (this.dustAt <= 0){
+        this.dustAt = 0.055;
+        const g = this.projPlayer();
+        this.puff(g.x + rand(-g.s * 0.1, g.s * 0.1), g.y, g.s, 1, 0.34);
+      }
+    }
     if (this.p.slide <= 0 && this.p.jumpBuffer > 0 && this.p.y <= 0) this.liftOff();
 
     // יצירת מסלול
@@ -2256,7 +2761,7 @@ const Game = {
       pt.t += dt;
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
-      pt.vy += 620 * dt;
+      pt.vy += (pt.grav ?? 620) * dt;
     }
     this.parts = this.parts.filter(pt => pt.t < pt.life);
 
@@ -2267,8 +2772,16 @@ const Game = {
   collect(e){
     e.taken = true;
     const pr = this.projPlayer();
-    if (e.kind === 'star'){ this.addStars(1); sfx.star(); this.burst(pr.x, pr.y - pr.s * 0.6, '#ffc531', 8); }
-    else if (e.kind === 'gem'){ this.addStars(5); sfx.gem(); this.burst(pr.x, pr.y - pr.s * 0.6, '#59d8ff', 16); this.hooks.onToast?.('+5 ⭐'); }
+    if (e.kind === 'star'){
+      this.addStars(1); sfx.star();
+      this.burst(pr.x, pr.y - pr.s * 0.6, '#ffc531', 8);
+      this.floatText(pr.x, pr.y - pr.s * 0.9, '+1', '#ffdf6b');
+    }
+    else if (e.kind === 'gem'){
+      this.addStars(5); sfx.gem();
+      this.burst(pr.x, pr.y - pr.s * 0.6, '#59d8ff', 16);
+      this.floatText(pr.x, pr.y - pr.s * 0.9, '+5', '#8ef2ff');
+    }
     else if (e.kind === 'magnet'){ this.p.magnet = 8; sfx.gem(); this.hooks.onToast?.('מגנט! 🧲'); say('מגנט'); }
     else if (e.kind === 'shield'){ this.p.shield = 12; sfx.shield(); this.hooks.onToast?.('בועה! 🫧'); say('בועת הגנה'); }
   },
@@ -2365,6 +2878,8 @@ const Game = {
       const m = this.shake * 9;
       ctx.translate(rand(-m, m), rand(-m, m));
     }
+    // תזוזת מצלמה עדינה אחרי המסלול
+    ctx.translate(-this.camX * view.unit * 0.30, 0);
 
     drawSky(ctx, view, pal, this.scrollZ, dayT);
     drawGround(ctx, view, pal, this.scrollZ);
@@ -2401,19 +2916,31 @@ const Game = {
         case 'magnet': drawShadow(ctx, pr.x, pr.y, pr.s, 0.07); drawMagnet(ctx, py.x, py.y, pr.s, e.spin); break;
         case 'shield': drawShadow(ctx, pr.x, pr.y, pr.s, 0.07); drawShieldProp(ctx, py.x, py.y, pr.s, e.spin); break;
         case 'bush':   drawBush(ctx, pr.x, pr.y, pr.s); break;
-        case 'crate':  drawCrate(ctx, pr.x, pr.y, pr.s); break;
-        case 'bar':    drawBar(ctx, pr.x, pr.y, pr.s); break;
+        case 'crate':  drawCrate(ctx, view, e.z, wx, e.tint ?? 0); break;
+        case 'bar':    drawBar(ctx, view, e.z, wx); break;
       }
     }
     if (!playerDrawn.done){ drawFog(ctx, view, pal); this.drawPlayer(ctx, pal); }
 
     // חלקיקים
     for (const pt of this.parts){
-      ctx.globalAlpha = clamp(1 - pt.t / pt.life, 0, 1);
-      ctx.fillStyle = pt.color;
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill();
+      const a = clamp(1 - pt.t / pt.life, 0, 1);
+      ctx.globalAlpha = a;
+      if (pt.kind === 'text'){
+        ctx.fillStyle = pt.color;
+        ctx.font = `900 ${Math.round(view.unit * 0.20)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(13,27,62,.45)';
+        ctx.strokeText(pt.text, pt.x, pt.y);
+        ctx.fillText(pt.text, pt.x, pt.y);
+      } else {
+        ctx.fillStyle = pt.color;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
+    ctx.textAlign = 'start';
 
     // אור חמים של שקיעה
     if (pal.warm > 0.02){
@@ -2443,6 +2970,9 @@ const Game = {
 
     const pose = this.p.slide > 0 ? 'slide' : this.p.y > 0.05 ? 'jump' : 'run';
     const color = colorById(save.color).hex;
+    const expr = this.p.stumble > 0 ? 'oops'
+      : this.speed > this.prof.start + (this.prof.max - this.prof.start) * 0.65 ? 'determined'
+      : undefined;
 
     ctx.save();
     ctx.translate(pr.x, pr.y);
@@ -2453,7 +2983,11 @@ const Game = {
       ctx.globalAlpha = 0.55 + 0.45 * Math.sin(this.runT * 26);
     }
     ctx.scale(pr.s, pr.s);
-    drawCharacter(ctx, save.character, { pose, t: this.runT, color });
+    drawCharacter(ctx, save.character, {
+      pose, t: this.runT, color,
+      outfit: save.outfit || DEFAULT_OUTFIT,
+      lean: this.p.lean, vy: this.p.vy, squash: this.p.squash / 0.18, expr,
+    });
     ctx.restore();
 
     // בועת הגנה
@@ -2490,7 +3024,7 @@ const Game = {
 
 
 /* ---------------- מסכים ---------------- */
-const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'pick', 'who', 'parent'];
+const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'pick', 'who', 'daily', 'parent'];
 function show(name){
   SCREENS.forEach(s => $('#scr-' + s)?.classList.toggle('show', s === name));
   const inGame = name === null;
@@ -2590,7 +3124,7 @@ let heroT = 0, heroRaf = 0;
 function heroLoop(){
   heroRaf = requestAnimationFrame(heroLoop);
   heroT += 0.016;
-  paintPreview(heroCanvas, save.character, colorById(save.color).hex, heroT, 'run');
+  paintPreview(heroCanvas, save.character, colorById(save.color).hex, heroT, 'run', save.outfit || DEFAULT_OUTFIT);
 }
 function startHero(){ if (!heroRaf) heroLoop(); }
 function stopHero(){ cancelAnimationFrame(heroRaf); heroRaf = 0; }
@@ -2605,8 +3139,9 @@ function refreshHome(){
 function goHome(){
   stopWho();
   stopPick();
-  show('home');
   refreshHome();
+  if (showDailyIfDue()) return;   // הפרס נפתח פעם ביום, לפני מסך הבית
+  show('home');
   startHero();
 }
 
@@ -2617,7 +3152,7 @@ let whoRaf = 0, whoT = 0;
 function whoLoop(){
   whoRaf = requestAnimationFrame(whoLoop);
   whoT += 0.016;
-  whoPreviews.forEach((pv, i) => paintPreview(pv.cv, pv.char, pv.color, whoT + i * 0.4, 'run'));
+  whoPreviews.forEach((pv, i) => paintPreview(pv.cv, pv.char, pv.color, whoT + i * 0.4, 'run', pv.outfit));
 }
 function stopWho(){ cancelAnimationFrame(whoRaf); whoRaf = 0; }
 
@@ -2651,7 +3186,7 @@ function buildWho(){
     };
 
     grid.appendChild(card);
-    whoPreviews.push({ cv, char: p.character, color: colorById(p.color).hex });
+    whoPreviews.push({ cv, char: p.character, color: colorById(p.color).hex, outfit: p.outfit || DEFAULT_OUTFIT });
   });
 }
 
@@ -2671,9 +3206,11 @@ function pickLoop(){
   pickRaf = requestAnimationFrame(pickLoop);
   pickT += 0.016;
   const col = colorById(save.color).hex;
+  const fit = save.outfit || DEFAULT_OUTFIT;
+  paintPreview($('#pickHero'), save.character, col, pickT, 'run', fit);
   pickPreviews.forEach((pv, i) => {
     const running = pv.id === save.character;
-    paintPreview(pv.cv, pv.id, col, running ? pickT : i * 0.31, running ? 'run' : 'idle');
+    paintPreview(pv.cv, pv.id, col, running ? pickT : i * 0.31, running ? 'run' : 'idle', fit);
   });
 }
 function stopPick(){ cancelAnimationFrame(pickRaf); pickRaf = 0; }
@@ -2722,6 +3259,46 @@ function buildPick(){
   });
 
   buildSwatches($('#pickColor'), save.color, id => { save.color = id; persist(); });
+  buildAccessoryRows();
+}
+
+/** שורות אביזרים — הכל פתוח, בלי מחירים ובלי מנעולים */
+function buildAccessoryRows(){
+  const host = $('#accRows');
+  host.innerHTML = '';
+  if (!save.outfit) save.outfit = { ...DEFAULT_OUTFIT };
+
+  for (const slot of Object.keys(ACCESSORIES)){
+    const row = document.createElement('div');
+    row.className = 'acc-row';
+    const title = document.createElement('span');
+    title.textContent = ACCESSORY_LABELS[slot];
+    row.appendChild(title);
+
+    const chips = document.createElement('div');
+    chips.className = 'acc-chips';
+    ACCESSORIES[slot].forEach(item => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'acc-chip';
+      b.textContent = item.emoji;
+      b.title = item.name;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-label', `${ACCESSORY_LABELS[slot]}: ${item.name}`);
+      b.setAttribute('aria-checked', String(save.outfit[slot] === item.id));
+      b.onclick = () => {
+        save.outfit[slot] = item.id;
+        persist();
+        sfx.tap();
+        buzz(6);
+        chips.querySelectorAll('.acc-chip').forEach(x => x.setAttribute('aria-checked', 'false'));
+        b.setAttribute('aria-checked', 'true');
+      };
+      chips.appendChild(b);
+    });
+    row.appendChild(chips);
+    host.appendChild(row);
+  }
 }
 
 function openPick(){
@@ -2826,10 +3403,49 @@ function showEnd(res){
     ? 'סיבוב מושלם — בלי אף מעידה! 🌟'
     : `סך הכל אספת ${save.stars} כוכבים ⭐`;
 
+  const board = $('#endBoard');
+  if (store.profiles.length > 1){
+    const ranked = store.profiles.slice().sort((a, b) => b.bestMeters - a.bestMeters);
+    board.innerHTML = ranked.map((p, i) =>
+      `<div class="board-row${p.id === store.activeId ? ' me' : ''}">` +
+      `<span>${['🥇', '🥈', '🥉'][i] || '·'}</span>` +
+      `<span class="nm">${p.name}</span>` +
+      `<span>${p.bestMeters} מ׳</span></div>`).join('');
+  } else {
+    board.innerHTML = '';
+  }
+
   persist();
   show('end');
   confetti(40);
   say(`${save.name || 'גפן'}, אספת ${res.stars} כוכבים. כל הכבוד!`, { force: true });
+}
+
+/* ---------------- פרס יומי (סולם רצף) ---------------- */
+function showDailyIfDue(){
+  const reward = pendingDailyReward();
+  if (!reward) return false;
+
+  claimDailyReward();
+  $('#dailyTitle').textContent = reward.full
+    ? 'שבוע שלם ברצף! 🏆'
+    : `יום ${reward.day} ברצף!`;
+  $('#dailyText').textContent = `קיבלת ${reward.stars} כוכבים`;
+
+  const dots = $('#dailyDots');
+  dots.innerHTML = '';
+  STREAK_LADDER.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'daily-dot' + (i + 1 < reward.day ? ' done' : i + 1 === reward.day ? ' today' : '');
+    d.textContent = String(i + 1);
+    dots.appendChild(d);
+  });
+
+  show('daily');
+  sfx.fanfare();
+  confetti(reward.full ? 46 : 24);
+  say(`${save.name}, קיבלת ${reward.stars} כוכבים על יום ${reward.day} ברצף`, { force: true });
+  return true;
 }
 
 /* ---------------- מסך היכרות (שחקן ראשון או נוסף) ---------------- */
@@ -2887,6 +3503,9 @@ function wire(){
     goHome();
   };
 
+  /* פרס יומי */
+  $('#btnDailyOk').onclick = () => { goHome(); };
+
   /* בית */
   $('#btnPlay').onclick = () => { save.pickEachRun ? openPick() : startRun(); };
   $('#btnWho').onclick = () => openWho();
@@ -2898,7 +3517,19 @@ function wire(){
 
   /* משחק */
   $('#btnPause').onclick = () => { Game.pause(); hushVoice(); show('pause'); };
-  $('#btnResume').onclick = () => { show(null); Game.resume(); };
+  $('#btnResume').onclick = () => {
+    show(null);
+    let n = 3;
+    toast(String(n));
+    const tick = setInterval(() => {
+      n--;
+      if (n > 0){ toast(String(n)); sfx.tap(); return; }
+      clearInterval(tick);
+      toast('קדימה!');
+      sfx.gem();
+      Game.resume();
+    }, 620);
+  };
   $('#btnQuit').onclick = () => {
     coachTimers.forEach(clearTimeout); coachTimers = [];
     Game.endNow(); persist(); Game.quit(); goHome();
@@ -2961,7 +3592,8 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else boot();
 
 /* Service Worker — כדי שהמשחק יעבוד גם בלי אינטרנט */
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')){
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')
+    && document.querySelector('link[rel="manifest"]')){
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
