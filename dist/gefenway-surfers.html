@@ -1670,32 +1670,100 @@ function project(view, z, wx = 0, wy = 0){
 const laneX = lane => (lane - 1) * LANE_W;
 
 /* ============================================================
-   שמיים — שלוש תחנות: יום → שקיעה → ערב.
-   dayT הולך מ-0 (תחילת הסשן) עד 1 (בית העץ).
+   עולמות — המסלול עובר בין נופים שונים לאורך הריצה
    ============================================================ */
-const SKY_KEYS = [
-  { t: 0.00, top:'#4fb8ff', mid:'#a8e4ff', low:'#e9f8ff', ground:'#4fd07f', road:'#8d8ea8', sun:'#fff6c9' },
-  { t: 0.62, top:'#4a9fe8', mid:'#ffd39b', low:'#ffe9c4', ground:'#43ad6d', road:'#7e7f9b', sun:'#fff0b0' },
-  { t: 0.86, top:'#37489a', mid:'#ff8f6b', low:'#ffcf8f', ground:'#2b7d51', road:'#5f6182', sun:'#ffb26b' },
-  { t: 1.00, top:'#141d47', mid:'#3b3a75', low:'#7b5aa0', ground:'#155238', road:'#3d3f5c', sun:'#ffd9a0' },
+const WORLD_LEN = 260;   // יחידות עולם לכל נוף
+const BLEND = 46;               // אזור המעבר בין נוף לנוף
+
+const WORLDS = [
+  { id:'park',   name:'פארק',  emoji:'🌳',
+    gNear:'#e8f8ec', gFar:'#4fd07f', hill:'#79c98f',
+    road:'#8d8ea8', dash:'rgba(255,255,255,.78)',
+    kerbA:'rgba(255,255,255,.88)', kerbB:'rgba(232,90,110,.88)',
+    props:['tree','flower','rock','shrub','lamp','flower','tree','shrub'] },
+
+  { id:'city',   name:'עיר',   emoji:'🏙️',
+    gNear:'#e3e6ef', gFar:'#9aa0b4', hill:'#8c96b2',
+    road:'#5f6278', dash:'rgba(255,214,90,.9)',
+    kerbA:'rgba(232,237,247,.92)', kerbB:'rgba(116,124,148,.92)',
+    props:['building','building','lamp','bench','building','building','lamp','shrub'] },
+
+  { id:'beach',  name:'חוף',   emoji:'🏖️',
+    gNear:'#fff6de', gFar:'#f0d093', hill:'#74cfe6', sea:true,
+    road:'#c9a06a', dash:'rgba(255,255,255,.85)',
+    kerbA:'rgba(255,255,255,.92)', kerbB:'rgba(70,185,220,.9)',
+    props:['palm','umbrella','rock','palm','umbrella','palm','shrub','rock'] },
+
+  { id:'desert', name:'מדבר',  emoji:'🏜️',
+    gNear:'#fff0cf', gFar:'#e0b273', hill:'#d5a065',
+    road:'#a87950', dash:'rgba(255,255,255,.8)',
+    kerbA:'rgba(255,245,225,.88)', kerbB:'rgba(186,116,66,.88)',
+    props:['cactus','rock','cactus','rock','cactus','shrub','rock','cactus'] },
+
+  { id:'snow',   name:'שלג',   emoji:'❄️',
+    gNear:'#ffffff', gFar:'#d8e8f6', hill:'#cadff0', snow:true,
+    road:'#a2b3c7', dash:'rgba(110,150,195,.85)',
+    kerbA:'rgba(255,255,255,.95)', kerbB:'rgba(140,185,225,.92)',
+    props:['pine','snowman','rock','pine','pine','shrub','pine','rock'] },
 ];
 
-function skyPalette(dayT){
+const smooth = t => t * t * (3 - 2 * t);
+
+/** איזה עולם נמצא במרחק מוחלט זה, וכמה כבר התמזג עם הבא */
+function worldBlend(zAbs){
+  const i = Math.floor(zAbs / WORLD_LEN);
+  const into = zAbs - i * WORLD_LEN;
+  const k = into > WORLD_LEN - BLEND ? smooth((into - (WORLD_LEN - BLEND)) / BLEND) : 0;
+  return {
+    index: i,
+    a: WORLDS[((i % WORLDS.length) + WORLDS.length) % WORLDS.length],
+    b: WORLDS[(((i + 1) % WORLDS.length) + WORLDS.length) % WORLDS.length],
+    k,
+  };
+}
+
+/** העולם ה"נוכחי" מבחינת השחקן — לצורך הכרזה ומזג אוויר */
+const worldAt = zAbs => worldBlend(zAbs + BLEND / 2).a;
+
+/* ============================================================
+   שמיים — שלוש תחנות זמן: יום → שקיעה → ערב
+   ============================================================ */
+const SKY_KEYS = [
+  { t: 0.00, top:'#4fb8ff', mid:'#a8e4ff', low:'#e9f8ff', sun:'#fff6c9' },
+  { t: 0.62, top:'#4a9fe8', mid:'#ffd39b', low:'#ffe9c4', sun:'#fff0b0' },
+  { t: 0.86, top:'#37489a', mid:'#ff8f6b', low:'#ffcf8f', sun:'#ffb26b' },
+  { t: 1.00, top:'#141d47', mid:'#3b3a75', low:'#7b5aa0', sun:'#ffd9a0' },
+];
+
+function skyPalette(dayT, zAbs = 0){
   const t = clamp(dayT, 0, 1);
   let a = SKY_KEYS[0], b = SKY_KEYS[SKY_KEYS.length - 1];
   for (let i = 0; i < SKY_KEYS.length - 1; i++){
     if (t >= SKY_KEYS[i].t && t <= SKY_KEYS[i + 1].t){ a = SKY_KEYS[i]; b = SKY_KEYS[i + 1]; break; }
   }
-  const k = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+  const j = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+  const night = clamp((t - 0.72) / 0.28, 0, 1);
+
+  const w = worldBlend(zAbs);
+  const mixW = key => mixHex(w.a[key], w.b[key], w.k);
+  const dim = c => mixHex(c, '#0f1730', night * 0.52);
+
   return {
-    top: mixHex(a.top, b.top, k),
-    mid: mixHex(a.mid, b.mid, k),
-    low: mixHex(a.low, b.low, k),
-    ground: mixHex(a.ground, b.ground, k),
-    road: mixHex(a.road, b.road, k),
-    sun: mixHex(a.sun, b.sun, k),
-    night: clamp((t - 0.72) / 0.28, 0, 1),
-    warm: clamp((t - 0.30) / 0.34, 0, 1) * (1 - clamp((t - 0.72) / 0.28, 0, 1)),
+    top: mixHex(a.top, b.top, j),
+    mid: mixHex(a.mid, b.mid, j),
+    low: mixHex(a.low, b.low, j),
+    sun: mixHex(a.sun, b.sun, j),
+    night,
+    warm: clamp((t - 0.30) / 0.34, 0, 1) * (1 - night),
+    groundNear: dim(mixW('gNear')),
+    ground:     dim(mixW('gFar')),
+    hill:       dim(mixW('hill')),
+    road:       dim(mixW('road')),
+    dash:       w.k < 0.5 ? w.a.dash : w.b.dash,
+    kerbA:      w.k < 0.5 ? w.a.kerbA : w.b.kerbA,
+    kerbB:      w.k < 0.5 ? w.a.kerbB : w.b.kerbB,
+    sea:        (w.a.sea ? 1 - w.k : 0) + (w.b.sea ? w.k : 0),
+    snow:       (w.a.snow ? 1 - w.k : 0) + (w.b.snow ? w.k : 0),
   };
 }
 
@@ -1708,7 +1776,6 @@ function drawSky(ctx, view, pal, scrollZ, dayT){
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, horizonY + 2);
 
-  // שמש/ירח — יורדת לאט לכיוון האופק
   const sunY = lerp(horizonY * 0.30, horizonY * 0.98, clamp(dayT, 0, 1));
   const sunR = view.w * 0.085;
   ctx.save();
@@ -1722,24 +1789,21 @@ function drawSky(ctx, view, pal, scrollZ, dayT){
   ctx.beginPath(); ctx.arc(view.w * 0.74, sunY, sunR, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 
-  // כוכבים בערב
   if (pal.night > 0.02){
     ctx.save();
-    ctx.globalAlpha = pal.night * 0.9;
     ctx.fillStyle = '#fff';
     for (let i = 0; i < 46; i++){
       const sx = ((i * 97) % 1000) / 1000 * w;
       const sy = ((i * 61) % 700) / 700 * horizonY * 0.8;
-      const r = (i % 3 === 0) ? 1.9 : 1.1;
       ctx.globalAlpha = pal.night * (0.35 + 0.55 * ((i * 37) % 10) / 10);
-      ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, sy, (i % 3 === 0) ? 1.9 : 1.1, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }
 
-  // גבעות רחוקות (פרלקסה איטית)
+  // גבעות רחוקות
   const off = (scrollZ * 6) % (w * 0.9);
-  ctx.fillStyle = mixHex('#79c98f', '#20406b', clamp(dayT * 0.9, 0, 1));
+  ctx.fillStyle = pal.hill;
   for (let i = -1; i < 4; i++){
     const hx = i * w * 0.9 - off;
     ctx.beginPath();
@@ -1749,7 +1813,6 @@ function drawSky(ctx, view, pal, scrollZ, dayT){
     ctx.closePath(); ctx.fill();
   }
 
-  // עננים
   ctx.save();
   ctx.globalAlpha = 0.75 * (1 - pal.night * 0.8);
   ctx.fillStyle = '#ffffff';
@@ -1771,58 +1834,76 @@ function drawSky(ctx, view, pal, scrollZ, dayT){
    קרקע + כביש
    ============================================================ */
 function drawGround(ctx, view, pal, scrollZ){
-  const { w, horizonY, groundY } = view;
+  const { w, horizonY } = view;
 
   const gg = ctx.createLinearGradient(0, horizonY, 0, view.h);
-  gg.addColorStop(0, mixHex('#ffffff', pal.ground, 0.55));
+  gg.addColorStop(0, pal.groundNear);
   gg.addColorStop(1, pal.ground);
   ctx.fillStyle = gg;
   ctx.fillRect(0, horizonY, w, view.h - horizonY);
 
-  // פסי דשא נעים (תחושת מהירות עדינה) — נעצרים כשהם דקים מדי כדי שלא ייווצר כתם כהה
+  // ים לאורך האופק בעולם החוף
+  if (pal.sea > 0.02){
+    ctx.save();
+    ctx.globalAlpha = pal.sea;
+    const seaBottom = horizonY + (view.h - horizonY) * 0.13;
+    const sg = ctx.createLinearGradient(0, horizonY, 0, seaBottom);
+    sg.addColorStop(0, '#3fb6dd');
+    sg.addColorStop(1, '#8fe0f0');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, horizonY, w, seaBottom - horizonY);
+    ctx.strokeStyle = 'rgba(255,255,255,.75)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++){
+      const y = horizonY + (seaBottom - horizonY) * (0.35 + i * 0.22);
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 22){
+        const yy = y + Math.sin((x + scrollZ * 26 + i * 60) * 0.03) * 2.2;
+        if (x === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   ctx.save();
-  ctx.fillStyle = '#0b3d24';
+  ctx.fillStyle = shade(pal.ground, -0.16);   // גוון הקרקע עצמה, לא ירוק קבוע
   const BAND = 4.5;
   for (let k = 0; k < 24; k++){
     if (k % 2) continue;
     const z0 = Math.max(k * BAND - (scrollZ % (BAND * 2)), 0);
-    const z1 = z0 + BAND;
     const a = project(view, z0);
-    const b = project(view, z1);
+    const b = project(view, z0 + BAND);
     const hgt = a.y - b.y;
     if (hgt < 2.5) break;
-    ctx.globalAlpha = 0.10 * Math.min(1, hgt / 16);
+    ctx.globalAlpha = 0.16 * Math.min(1, hgt / 16);
     ctx.fillRect(0, b.y, w, hgt);
   }
   ctx.restore();
 
-  // כביש — טרפז ישר בין z=0 ל-z=Z_FAR
   const near = project(view, 0);
   const far  = project(view, Z_FAR);
   const nearHW = ROAD_HW * near.s, farHW = ROAD_HW * far.s;
 
-  ctx.fillStyle = pal.road;
-  ctx.beginPath();
-  ctx.moveTo(view.cx - nearHW, near.y);
-  ctx.lineTo(view.cx + nearHW, near.y);
-  ctx.lineTo(view.cx + farHW,  far.y);
-  ctx.lineTo(view.cx - farHW,  far.y);
-  ctx.closePath();
-  ctx.fill();
+  const roadPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(view.cx - nearHW, near.y);
+    ctx.lineTo(view.cx + nearHW, near.y);
+    ctx.lineTo(view.cx + farHW,  far.y);
+    ctx.lineTo(view.cx - farHW,  far.y);
+    ctx.closePath();
+  };
 
-  // הבהרה עדינה במרכז הכביש — עומק
+  ctx.fillStyle = pal.road;
+  roadPath(); ctx.fill();
+
   const roadLight = ctx.createLinearGradient(0, far.y, 0, near.y);
   roadLight.addColorStop(0, 'rgba(255,255,255,.16)');
   roadLight.addColorStop(1, 'rgba(0,0,0,.10)');
   ctx.fillStyle = roadLight;
-  ctx.beginPath();
-  ctx.moveTo(view.cx - nearHW, near.y);
-  ctx.lineTo(view.cx + nearHW, near.y);
-  ctx.lineTo(view.cx + farHW,  far.y);
-  ctx.lineTo(view.cx - farHW,  far.y);
-  ctx.closePath(); ctx.fill();
+  roadPath(); ctx.fill();
 
-  // אבני שפה אדום־לבן
+  // אבני שפה
   const KERB = 2.6;
   for (const sd of [-1, 1]){
     for (let k = 0; k < 30; k++){
@@ -1832,7 +1913,7 @@ function drawGround(ctx, view, pal, scrollZ){
       z0 = Math.max(z0, 0.2);
       const a = project(view, z0, sd * ROAD_HW), b = project(view, z1, sd * ROAD_HW);
       if (a.y - b.y < 0.6) break;
-      ctx.fillStyle = (k % 2) ? 'rgba(255,255,255,.85)' : 'rgba(232,90,110,.85)';
+      ctx.fillStyle = (k % 2) ? pal.kerbA : pal.kerbB;
       const wa = Math.max(1, 0.075 * a.s), wb = Math.max(0.5, 0.075 * b.s);
       ctx.beginPath();
       ctx.moveTo(a.x - wa, a.y); ctx.lineTo(a.x + wa, a.y);
@@ -1841,7 +1922,6 @@ function drawGround(ctx, view, pal, scrollZ){
     }
   }
 
-  // שוליים בהירים
   ctx.strokeStyle = 'rgba(255,255,255,.55)';
   ctx.lineWidth = Math.max(2, view.w * 0.006);
   ctx.beginPath();
@@ -1849,8 +1929,7 @@ function drawGround(ctx, view, pal, scrollZ){
   ctx.moveTo(view.cx + nearHW, near.y); ctx.lineTo(view.cx + farHW, far.y);
   ctx.stroke();
 
-  // קווי הפרדה מקווקווים בין המסלולים
-  ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.fillStyle = pal.dash;
   const DASH = 3.2, GAP = 3.2, PERIOD = DASH + GAP;
   for (const bx of [-LANE_W / 2, LANE_W / 2]){
     for (let k = 0; k < 34; k++){
@@ -1868,33 +1947,49 @@ function drawGround(ctx, view, pal, scrollZ){
   }
 }
 
-/* עצים, פנסים, סלעים ופרחים לצדדים */
+/* ============================================================
+   נוף הצדדים — כל פריט שייך לעולם שבמיקום המוחלט שלו,
+   ולכן העולם הבא כבר נראה באופק לפני שמגיעים אליו
+   ============================================================ */
 function drawSideScenery(ctx, view, pal, scrollZ){
   const SP = 3.5;
+  const first = Math.floor(scrollZ / SP);
   const items = [];
-  for (let k = 0; k < 60; k++){
-    const z = k * SP - (scrollZ % SP);
-    if (z < 0.5 || z > Z_FAR * 0.8) continue;
-    const seed = Math.abs(Math.floor((scrollZ / SP) + k));
-    const hash = (seed * 2654435761) % 4096;              // מפזר בלי מחזוריות נראית לעין
-    const side = (hash & 1) ? 1 : -1;
-    const kind = ['tree', 'flower', 'rock', 'shrub', 'lamp', 'flower', 'tree', 'shrub'][(hash >> 4) % 8];
-    items.push({ z, side, kind, seed: hash });
+
+  for (let k = 0; k < 62; k++){
+    const idx = first + k;
+    const zAbs = idx * SP;
+    const z = zAbs - scrollZ;
+    if (z < 0.5 || z > Z_FAR * 0.85) continue;
+    const hash = Math.abs((idx * 2654435761) % 4096);
+    const world = worldAt(zAbs);
+    items.push({
+      z, world, hash,
+      side: (hash & 1) ? 1 : -1,
+      kind: world.props[(hash >> 4) % world.props.length],
+    });
   }
   items.sort((a, b) => b.z - a.z);
 
   for (const it of items){
-    const near = it.kind === 'flower' || it.kind === 'rock' || it.kind === 'shrub';
-    const spread = near ? 0.30 + (it.seed % 5) * 0.55 : 0.75 + (it.seed % 3) * 0.45;
+    const big = it.kind === 'building' || it.kind === 'palm' || it.kind === 'pine' || it.kind === 'tree';
+    const spread = big ? 0.95 + (it.hash % 3) * 0.55 : 0.30 + (it.hash % 5) * 0.55;
     const wx = it.side * (ROAD_HW + spread);
     const pr = project(view, it.z, wx);
     if (pr.s < 0.5) continue;
     switch (it.kind){
-      case 'tree':   drawTree(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
-      case 'lamp':   drawLamp(ctx, pr.x, pr.y, pr.s, pal); break;
-      case 'rock':   drawRock(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
-      case 'shrub':  drawShrub(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
-      case 'flower': drawFlower(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
+      case 'tree':     drawTree(ctx, pr.x, pr.y, pr.s, pal, it.hash); break;
+      case 'lamp':     drawLamp(ctx, pr.x, pr.y, pr.s, pal); break;
+      case 'rock':     drawRock(ctx, pr.x, pr.y, pr.s, pal, it.hash); break;
+      case 'shrub':    drawShrub(ctx, pr.x, pr.y, pr.s, pal, it.hash); break;
+      case 'flower':   drawFlower(ctx, pr.x, pr.y, pr.s, pal, it.hash); break;
+      case 'building': drawBuilding(ctx, view, it.z, wx, it.hash, pal); break;
+      case 'bench':    drawBench(ctx, pr.x, pr.y, pr.s, pal); break;
+      case 'palm':     drawPalm(ctx, pr.x, pr.y, pr.s, pal, it.hash); break;
+      case 'umbrella': drawUmbrella(ctx, pr.x, pr.y, pr.s, it.hash); break;
+      case 'cactus':   drawCactus(ctx, pr.x, pr.y, pr.s, pal, it.hash); break;
+      case 'pine':     drawPine(ctx, pr.x, pr.y, pr.s, pal, it.hash); break;
+      case 'snowman':  drawSnowman(ctx, pr.x, pr.y, pr.s); break;
     }
   }
 }
@@ -1973,6 +2068,179 @@ function drawLamp(ctx, x, y, s, pal){
     ctx.beginPath(); ctx.arc(x, y - s * 1.5, s * 0.9, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
+}
+
+/* ---------- עיר ---------- */
+const BUILDING_COLORS = ['#c9d2e4', '#e0d6c8', '#b7c3d8', '#d8c9d2', '#c2cbbd'];
+
+function drawBuilding(ctx, view, z, wx, seed, pal){
+  const floors = 3 + (seed % 6);
+  const h = 1.5 + floors * 0.55;
+  const w = 1.5 + (seed % 3) * 0.45;
+  const base = mixHex(BUILDING_COLORS[seed % BUILDING_COLORS.length], '#1a2340', pal.night * 0.62);
+  const box = drawBox3D(ctx, view, z, wx, w, h, 1.5, base);
+
+  // חלונות על הפאה הקדמית
+  const { ftl, ftr, fbl } = box;
+  const bw = ftr.x - ftl.x, bh = fbl.y - ftl.y;
+  if (Math.abs(bw) < 6 || bh < 10) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(ftl.x, ftl.y); ctx.lineTo(ftr.x, ftr.y);
+  ctx.lineTo(box.fbr.x, box.fbr.y); ctx.lineTo(fbl.x, fbl.y);
+  ctx.closePath(); ctx.clip();
+  const cols = 3, rows = floors;
+  for (let r = 0; r < rows; r++){
+    for (let c = 0; c < cols; c++){
+      const lit = ((seed + r * 7 + c * 13) % 5) < (pal.night > 0.3 ? 3 : 1);
+      ctx.fillStyle = lit
+        ? mixHex('#ffe9a8', '#ffd15c', pal.night)
+        : `rgba(60,80,120,${0.35 + pal.night * 0.3})`;
+      const x = ftl.x + bw * (0.14 + c * 0.26);
+      const y = ftl.y + bh * (0.10 + r * (0.86 / rows));
+      ctx.fillRect(x, y, bw * 0.16, bh * (0.55 / rows));
+    }
+  }
+  ctx.restore();
+}
+
+function drawBench(ctx, x, y, s, pal){
+  drawShadow(ctx, x, y, s * 0.7, 0.14);
+  const wood = mixHex('#a9743d', '#2a2540', pal.night);
+  ctx.fillStyle = wood;
+  ctx.fillRect(x - s * 0.24, y - s * 0.26, s * 0.48, s * 0.07);
+  ctx.fillRect(x - s * 0.24, y - s * 0.46, s * 0.48, s * 0.06);
+  ctx.fillStyle = shade(wood, -0.16);
+  ctx.fillRect(x - s * 0.21, y - s * 0.26, s * 0.05, s * 0.26);
+  ctx.fillRect(x + s * 0.16, y - s * 0.26, s * 0.05, s * 0.26);
+}
+
+/* ---------- חוף ---------- */
+function drawPalm(ctx, x, y, s, pal, seed){
+  drawShadow(ctx, x, y, s * 1.0, 0.16);
+  const h = (1.5 + (seed % 3) * 0.3) * s;
+  const bend = ((seed % 5) - 2) * 0.05;
+  ctx.strokeStyle = mixHex('#a9773f', '#2a2540', pal.night);
+  ctx.lineWidth = s * 0.09;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + bend * h, y - h * 0.6, x + bend * h * 2, y - h);
+  ctx.stroke();
+  const tx = x + bend * h * 2, ty = y - h;
+  const frond = mixHex('#37b866', '#12482f', pal.night * 0.85);
+  ctx.fillStyle = frond;
+  for (let i = 0; i < 6; i++){
+    const a = Math.PI + i * (Math.PI / 5) + (seed % 3) * 0.12;
+    ctx.beginPath();
+    ctx.ellipse(tx + Math.cos(a) * s * 0.30, ty + Math.sin(a) * s * 0.20,
+                s * 0.32, s * 0.10, a, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = mixHex('#8a5a34', '#241f38', pal.night);
+  ctx.beginPath(); ctx.arc(tx, ty + s * 0.06, s * 0.06, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawUmbrella(ctx, x, y, s, seed){
+  drawShadow(ctx, x, y, s * 0.8, 0.16);
+  const h = s * 0.95;
+  ctx.strokeStyle = '#e8ecf6';
+  ctx.lineWidth = s * 0.045;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
+  const cols = [['#ff5d8f', '#ffffff'], ['#3aa0ff', '#ffe08a'], ['#37d67a', '#ffffff']][seed % 3];
+  for (let i = 0; i < 6; i++){
+    ctx.fillStyle = cols[i % 2];
+    ctx.beginPath();
+    ctx.moveTo(x, y - h - s * 0.10);
+    ctx.arc(x, y - h - s * 0.10, s * 0.42, Math.PI + i * Math.PI / 6, Math.PI + (i + 1) * Math.PI / 6);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+/* ---------- מדבר ---------- */
+function drawCactus(ctx, x, y, s, pal, seed){
+  drawShadow(ctx, x, y, s * 0.7, 0.16);
+  const h = (0.85 + (seed % 3) * 0.28) * s;
+  const green = mixHex('#3faa63', '#123c2a', pal.night * 0.85);
+  const rr2 = (px, py, pw, ph, r) => {
+    ctx.beginPath();
+    ctx.moveTo(px + r, py);
+    ctx.arcTo(px + pw, py, px + pw, py + ph, r);
+    ctx.arcTo(px + pw, py + ph, px, py + ph, r);
+    ctx.arcTo(px, py + ph, px, py, r);
+    ctx.arcTo(px, py, px + pw, py, r);
+    ctx.closePath(); ctx.fill();
+  };
+  ctx.fillStyle = green;
+  rr2(x - s * 0.09, y - h, s * 0.18, h, s * 0.09);
+  if (seed % 2){
+    rr2(x + s * 0.06, y - h * 0.72, s * 0.22, s * 0.14, s * 0.07);
+    rr2(x + s * 0.20, y - h * 0.78, s * 0.14, h * 0.34, s * 0.07);
+  } else {
+    rr2(x - s * 0.28, y - h * 0.66, s * 0.22, s * 0.14, s * 0.07);
+    rr2(x - s * 0.34, y - h * 0.72, s * 0.14, h * 0.30, s * 0.07);
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.22)';
+  rr2(x - s * 0.06, y - h + s * 0.05, s * 0.05, h * 0.8, s * 0.03);
+}
+
+/* ---------- שלג ---------- */
+function drawPine(ctx, x, y, s, pal, seed){
+  drawShadow(ctx, x, y, s * 0.9, 0.14);
+  const h = (1.5 + (seed % 3) * 0.3) * s;
+  ctx.fillStyle = mixHex('#7a5636', '#231f36', pal.night);
+  ctx.fillRect(x - s * 0.05, y - h * 0.22, s * 0.10, h * 0.22);
+  for (let i = 0; i < 3; i++){
+    const wdt = s * (0.42 - i * 0.10);
+    const top = y - h * (0.34 + i * 0.24) - h * 0.30;
+    const bot = y - h * (0.20 + i * 0.24);
+    ctx.fillStyle = mixHex(i % 2 ? '#2f8f57' : '#27784a', '#0e3527', pal.night * 0.85);
+    ctx.beginPath();
+    ctx.moveTo(x, top); ctx.lineTo(x + wdt, bot); ctx.lineTo(x - wdt, bot);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.82)';
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x + wdt * 0.55, bot - (bot - top) * 0.40);
+    ctx.lineTo(x - wdt * 0.55, bot - (bot - top) * 0.40);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawSnowman(ctx, x, y, s){
+  drawShadow(ctx, x, y, s * 0.8, 0.14);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(x, y - s * 0.22, s * 0.22, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y - s * 0.52, s * 0.16, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y - s * 0.76, s * 0.12, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#17203a';
+  ctx.beginPath(); ctx.arc(x - s * 0.045, y - s * 0.79, s * 0.017, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + s * 0.045, y - s * 0.79, s * 0.017, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ff8a3d';
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 0.755); ctx.lineTo(x + s * 0.10, y - s * 0.74); ctx.lineTo(x, y - s * 0.725);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ff5d8f';
+  ctx.fillRect(x - s * 0.13, y - s * 0.90, s * 0.26, s * 0.06);
+  ctx.fillRect(x - s * 0.09, y - s * 1.00, s * 0.18, s * 0.11);
+}
+
+/** פתיתי שלג — פונקציה של הזמן, בלי לנהל חלקיקים */
+function drawWeather(ctx, view, pal, t){
+  if (pal.snow <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = pal.snow * 0.85;
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 60; i++){
+    const seed = (i * 9301 + 49297) % 233280 / 233280;
+    const speed = 40 + seed * 90;
+    const y = ((t * speed + seed * view.h * 3) % (view.h + 40)) - 20;
+    const x = (seed * view.w + Math.sin(t * 0.8 + i) * 26 + view.w) % view.w;
+    const r = 1.2 + seed * 2.6;
+    ctx.globalAlpha = pal.snow * (0.35 + seed * 0.5);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
 }
 
 /* ============================================================
@@ -2470,6 +2738,7 @@ const Game = {
     this.gateCountdown = 5;
     this.shake = 0;
     this.camX = 0;
+    this.world = worldAt(0).id;
     this.dustAt = 0;
     this.treehouseZ = null;
     this.nextMilestone = 25;
@@ -2765,6 +3034,14 @@ const Game = {
     }
     this.parts = this.parts.filter(pt => pt.t < pt.life);
 
+    // מעבר בין עולמות
+    const w = worldAt(this.scrollZ);
+    if (w.id !== this.world){
+      this.world = w.id;
+      this.hooks.onToast?.(`${w.emoji} ${w.name}!`);
+      say(w.name);
+    }
+
     // התקדמות למסך
     if (sess !== Infinity) this.hooks.onProgress?.(clamp(this.elapsed / sess, 0, 1));
   },
@@ -2870,7 +3147,7 @@ const Game = {
     const dayT = attract ? 0.12
       : (sess === Infinity ? clamp(this.elapsed / 900, 0, 0.75)
                            : clamp(this.elapsed / sess, 0, 1));
-    const pal = skyPalette(dayT);
+    const pal = skyPalette(dayT, this.scrollZ);
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
@@ -2947,6 +3224,9 @@ const Game = {
       ctx.fillStyle = `rgba(255,148,72,${pal.warm * 0.18})`;
       ctx.fillRect(-20, -20, view.w + 40, view.h + 40);
     }
+
+    // מזג אוויר (שלג בעולם המושלג)
+    drawWeather(ctx, view, pal, this.runT);
 
     // פסי מהירות
     const spd = (this.speed - this.prof.start) / Math.max(0.1, this.prof.max - this.prof.start);

@@ -5,6 +5,7 @@
 פלט:   dist/gefenway-surfers.html
 """
 import base64
+import datetime as _dt
 import os
 import re
 
@@ -50,7 +51,19 @@ def data_uri(path, mime):
         return f"data:{mime};base64," + base64.b64encode(f.read()).decode()
 
 
+def stamp_service_worker():
+    """חותם גרסה חדשה על ה-SW כדי שהמטמון במסך הבית יתרענן בכל שחרור."""
+    path = os.path.join(ROOT, "sw.js")
+    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    src = read("sw.js")
+    src = re.sub(r"const VERSION = '[^']*';", f"const VERSION = 'gefenway-{stamp}';", src, count=1)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(src)
+    print("stamped sw.js ->", stamp)
+
+
 def main():
+    stamp_service_worker()
     html = read("index.html")
 
     # גוף המסמך בלבד — הפריסה החיצונית מסופקת על ידי המארח

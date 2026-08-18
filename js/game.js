@@ -9,7 +9,7 @@ import {
   skyPalette, drawSky, drawGround, drawSideScenery,
   drawShadow, drawStarProp, drawGemProp, drawBush, drawCrate, drawBar,
   drawMagnet, drawShieldProp, drawGate, drawTreehouse,
-  drawFog, drawVignette, drawSpeedLines,
+  drawFog, drawVignette, drawSpeedLines, drawWeather, worldAt,
 } from './world.js';
 
 const Z_SPAWN   = 78;    // מרחק היצירה
@@ -180,6 +180,7 @@ export const Game = {
     this.gateCountdown = 5;
     this.shake = 0;
     this.camX = 0;
+    this.world = worldAt(0).id;
     this.dustAt = 0;
     this.treehouseZ = null;
     this.nextMilestone = 25;
@@ -475,6 +476,14 @@ export const Game = {
     }
     this.parts = this.parts.filter(pt => pt.t < pt.life);
 
+    // מעבר בין עולמות
+    const w = worldAt(this.scrollZ);
+    if (w.id !== this.world){
+      this.world = w.id;
+      this.hooks.onToast?.(`${w.emoji} ${w.name}!`);
+      say(w.name);
+    }
+
     // התקדמות למסך
     if (sess !== Infinity) this.hooks.onProgress?.(clamp(this.elapsed / sess, 0, 1));
   },
@@ -580,7 +589,7 @@ export const Game = {
     const dayT = attract ? 0.12
       : (sess === Infinity ? clamp(this.elapsed / 900, 0, 0.75)
                            : clamp(this.elapsed / sess, 0, 1));
-    const pal = skyPalette(dayT);
+    const pal = skyPalette(dayT, this.scrollZ);
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
@@ -657,6 +666,9 @@ export const Game = {
       ctx.fillStyle = `rgba(255,148,72,${pal.warm * 0.18})`;
       ctx.fillRect(-20, -20, view.w + 40, view.h + 40);
     }
+
+    // מזג אוויר (שלג בעולם המושלג)
+    drawWeather(ctx, view, pal, this.runT);
 
     // פסי מהירות
     const spd = (this.speed - this.prof.start) / Math.max(0.1, this.prof.max - this.prof.start);

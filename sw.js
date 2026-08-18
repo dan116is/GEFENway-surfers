@@ -1,5 +1,5 @@
 /* Service Worker — המשחק נטען מיידית ועובד גם בלי אינטרנט */
-const VERSION = 'gefenway-v1';
+const VERSION = 'gefenway-20260818-134842';
 const ASSETS = [
   './',
   './index.html',
@@ -29,27 +29,34 @@ self.addEventListener('activate', e => {
   );
 });
 
+const NET_TIMEOUT = 2500;
+
+/** קודם רשת (עם פסק זמן), מטמון כגיבוי — כך עדכון באתר מגיע מיד למסך הבית */
+async function networkFirst(req){
+  const cache = await caches.open(VERSION);
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), NET_TIMEOUT);
+    const res = await fetch(req, { signal: controller.signal, cache: 'no-store' });
+    clearTimeout(timer);
+    if (res && res.ok && new URL(req.url).origin === location.origin){
+      cache.put(req, res.clone());
+    }
+    return res;
+  } catch {
+    const hit = await cache.match(req, { ignoreSearch: true });
+    if (hit) return hit;
+    if (req.mode === 'navigate'){
+      const shell = await cache.match('./index.html');
+      if (shell) return shell;
+    }
+    throw new Error('offline and not cached');
+  }
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  e.respondWith(
-    caches.match(req, { ignoreSearch: true }).then(hit => {
-      if (hit) {
-        // רענון ברקע כדי שעדכונים ייתפסו בפעם הבאה
-        fetch(req).then(res => {
-          if (res && res.ok) caches.open(VERSION).then(c => c.put(req, res.clone()));
-        }).catch(() => {});
-        return hit;
-      }
-      return fetch(req)
-        .then(res => {
-          if (res && res.ok && new URL(req.url).origin === location.origin){
-            const copy = res.clone();
-            caches.open(VERSION).then(c => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => caches.match('./index.html'));
-    })
-  );
+  if (new URL(req.url).origin !== location.origin) return;
+  e.respondWith(networkFirst(req));
 });
