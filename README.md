@@ -31,8 +31,13 @@
 
 1. מעלים את התיקייה לאירוח סטטי כלשהו. הכי פשוט — **GitHub Pages**:
    בריפו הזה → `Settings` → `Pages` → תחת *Build and deployment* בוחרים
-   **GitHub Actions**. ה-workflow שבתיקייה `.github/workflows` יעשה את השאר.
-   מקבלים כתובת בסגנון `https://<user>.github.io/gefenway-surfers/`.
+   **GitHub Actions**. ה-workflow שבתיקייה `.github/workflows` ירוץ אוטומטית
+   על הענף הראשי (או ידנית מלשונית *Actions* → *Deploy to GitHub Pages* →
+   *Run workflow*). מקבלים כתובת בסגנון
+   `https://dan116is.github.io/GEFENway-surfers/`.
+
+   חלופה בלי Actions: באותו מסך בוחרים *Deploy from a branch*, הענף הרצוי
+   ותיקיית `/ (root)`.
 2. פותחים את הכתובת ב-**Safari** באייפון (חייב Safari — לא כרום).
 3. כפתור השיתוף ⬆️ → **הוספה למסך הבית** → **הוסף**.
 4. סוגרים את Safari ופותחים את האייקון מהמסך. המשחק נפתח במסך מלא, בלי סרגלי
