@@ -6,7 +6,7 @@ import { CHARACTERS, charById, paintPreview } from './characters.js';
 import { Game } from './game.js';
 
 /* ---------------- מסכים ---------------- */
-const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'zoo', 'parent'];
+const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'pick', 'parent'];
 function show(name){
   SCREENS.forEach(s => $('#scr-' + s)?.classList.toggle('show', s === name));
   const inGame = name === null;
@@ -113,10 +113,8 @@ function stopHero(){ cancelAnimationFrame(heroRaf); heroRaf = 0; }
 function refreshHome(){
   $('#homeHello').textContent = save.name || 'גפן';
   $('#homeStars').textContent = save.stars;
-  const next = CHARACTERS.filter(c => !save.unlocked.includes(c.id)).sort((a, b) => a.cost - b.cost)[0];
-  $('#homeFoot').textContent = next
-    ? `עוד ${Math.max(0, next.cost - save.stars)} כוכבים ופותחים את ${next.name} ${next.emoji}`
-    : 'פתחתם את כל החברים! 🎉';
+  const next = save.stars === 0 ? 25 : (Math.floor(save.stars / 25) + 1) * 25;
+  $('#homeFoot').textContent = `עוד ${next - save.stars} כוכבים עד החגיגה הבאה 🎉`;
 }
 
 function goHome(){
@@ -125,57 +123,73 @@ function goHome(){
   startHero();
 }
 
-/* ---------------- מסך החברים ---------------- */
-const zooPreviews = [];
-function buildZoo(){
-  const grid = $('#zooGrid');
+/* ---------------- בורר הדמויות ---------------- */
+const pickPreviews = [];
+let pickRaf = 0, pickT = 0;
+
+function pickLoop(){
+  pickRaf = requestAnimationFrame(pickLoop);
+  pickT += 0.016;
+  const col = colorById(save.color).hex;
+  pickPreviews.forEach((pv, i) => {
+    const running = pv.id === save.character;
+    paintPreview(pv.cv, pv.id, col, running ? pickT : i * 0.31, running ? 'run' : 'idle');
+  });
+}
+function stopPick(){ cancelAnimationFrame(pickRaf); pickRaf = 0; }
+
+function markPicked(){
+  $('#pickGrid').querySelectorAll('.pick-card')
+    .forEach(el => el.setAttribute('aria-checked', String(el.dataset.id === save.character)));
+}
+
+function buildPick(){
+  const grid = $('#pickGrid');
   grid.innerHTML = '';
-  zooPreviews.length = 0;
+  pickPreviews.length = 0;
+
   CHARACTERS.forEach(c => {
-    const unlocked = save.unlocked.includes(c.id);
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = 'zoo-card' + (unlocked ? '' : ' locked');
+    card.className = 'pick-card';
+    card.dataset.id = c.id;
     card.setAttribute('role', 'radio');
+    card.setAttribute('aria-label', c.name);
     card.setAttribute('aria-checked', String(save.character === c.id));
+
     const cv = document.createElement('canvas');
     card.appendChild(cv);
     const nm = document.createElement('div');
     nm.className = 'nm';
-    nm.textContent = unlocked ? c.name : '🔒 ' + c.name;
+    nm.textContent = c.name;
     card.appendChild(nm);
-    const cost = document.createElement('div');
-    cost.className = 'cost';
-    cost.textContent = unlocked ? (save.character === c.id ? 'נבחר' : 'בחר') : `${c.cost} ⭐`;
-    card.appendChild(cost);
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.textContent = '✓';
+    card.appendChild(tick);
 
     card.onclick = () => {
-      if (save.unlocked.includes(c.id)){
-        save.character = c.id;
-        persist();
-        sfx.tap();
-        buildZoo();
-        refreshHome();
-      } else if (save.stars >= c.cost){
-        save.stars -= c.cost;
-        save.unlocked.push(c.id);
-        save.character = c.id;
-        persist();
-        sfx.unlock();
-        confetti(34);
-        say(`${c.name} הצטרף אליך!`, { force: true });
-        buildZoo();
-        refreshHome();
-      } else {
-        sfx.gateMiss();
-        buzz(20);
-        toast(`צריך עוד ${c.cost - save.stars} ⭐`);
-      }
+      save.character = c.id;
+      persist();
+      sfx.tap();
+      buzz(8);
+      markPicked();
+      say(c.name, { force: true });
     };
+
     grid.appendChild(card);
-    zooPreviews.push({ cv, id: c.id });
+    pickPreviews.push({ cv, id: c.id });
   });
-  zooPreviews.forEach((p, i) => paintPreview(p.cv, p.id, colorById(save.color).hex, i * 0.31, 'idle'));
+
+  buildSwatches($('#pickColor'), save.color, id => { save.color = id; persist(); });
+}
+
+function openPick(){
+  stopHero();
+  buildPick();
+  show('pick');
+  pickT = 0;
+  if (!pickRaf) pickLoop();
 }
 
 /* ---------------- הגדרות הורים ---------------- */
@@ -188,6 +202,7 @@ function openParent(){
   $('#setVoice').checked = save.voice;
   $('#setGates').checked = save.gates;
   $('#setShake').checked = save.shake;
+  $('#setPickEachRun').checked = save.pickEachRun;
 
   const t = save.totals;
   $('#parentStats').innerHTML = [
@@ -232,10 +247,9 @@ function showEnd(res){
   $('#endGates').textContent = res.gates;
   $('#endTitle').textContent = `${save.name || 'גפן'} הגיע לבית העץ!`;
 
-  const newly = CHARACTERS.filter(c => !save.unlocked.includes(c.id) && save.stars >= c.cost);
-  $('#endUnlock').textContent = newly.length
-    ? `אפשר לפתוח חבר חדש: ${newly.map(c => c.name + ' ' + c.emoji).join(', ')}`
-    : '';
+  $('#endUnlock').textContent = res.oops === 0
+    ? 'סיבוב מושלם — בלי אף מעידה! 🌟'
+    : `סך הכל אספת ${save.stars} כוכבים ⭐`;
 
   persist();
   show('end');
@@ -260,6 +274,7 @@ function coach(){
 function startRun(){
   hushVoice();
   stopHero();
+  stopPick();
   show(null);
   $('#runStars').textContent = '0';
   $('#trackFill').style.width = '0%';
@@ -280,9 +295,9 @@ function wire(){
   };
 
   /* בית */
-  $('#btnPlay').onclick = startRun;
-  $('#btnZoo').onclick = () => { buildZoo(); show('zoo'); };
-  $('#btnZooClose').onclick = () => { goHome(); };
+  $('#btnPlay').onclick = () => { save.pickEachRun ? openPick() : startRun(); };
+  $('#btnPickGo').onclick = () => { stopPick(); startRun(); };
+  $('#btnPickBack').onclick = () => { stopPick(); goHome(); };
   wireHoldToOpen();
 
   /* משחק */
@@ -295,11 +310,11 @@ function wire(){
 
   /* סוף */
   $('#btnEndHome').onclick = () => { Game.quit(); goHome(); };
-  $('#btnEndAgain').onclick = () => { startRun(); };
+  $('#btnEndAgain').onclick = () => { save.pickEachRun ? openPick() : startRun(); };
 
   /* הורים */
   $('#setName').oninput = e => { save.name = e.target.value.slice(0, 12); };
-  ['sound', 'voice', 'gates', 'shake'].forEach(k => {
+  ['sound', 'voice', 'gates', 'shake', 'pickEachRun'].forEach(k => {
     $('#set' + k[0].toUpperCase() + k.slice(1)).onchange = e => { save[k] = e.target.checked; persist(); };
   });
   $('#btnParentClose').onclick = () => {

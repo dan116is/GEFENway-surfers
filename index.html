@@ -70,7 +70,6 @@
 
   <div class="home-actions">
     <button class="btn play" id="btnPlay"><span>▶</span> שחק</button>
-    <button class="btn ghost" id="btnZoo">🐾 החברים שלי</button>
   </div>
   <div class="home-foot" id="homeFoot"></div>
 </div>
@@ -121,13 +120,17 @@
   </div>
 </div>
 
-<!-- ======================= החברים (דמויות) ======================= -->
-<div class="screen" id="scr-zoo">
+<!-- ======================= מי רץ היום? ======================= -->
+<div class="screen" id="scr-pick">
   <div class="sheet wide">
-    <h1>החברים שלי</h1>
-    <p class="lead">אוספים כוכבים ופותחים חברים חדשים.</p>
-    <div class="zoo-grid" id="zooGrid"></div>
-    <button class="btn big" id="btnZooClose">סגור</button>
+    <h1>מי רץ היום?</h1>
+    <div class="pick-grid" id="pickGrid"></div>
+    <div class="pick-colors">
+      <div class="pick-colors-title">איזה צבע?</div>
+      <div class="swatches center" id="pickColor"></div>
+    </div>
+    <button class="btn play" id="btnPickGo"><span>▶</span> קדימה!</button>
+    <button class="btn ghost" id="btnPickBack">חזרה</button>
   </div>
 </div>
 
@@ -150,6 +153,7 @@
       <label class="tgl"><input type="checkbox" id="setVoice"><span>עידוד בקול</span></label>
       <label class="tgl"><input type="checkbox" id="setGates"><span>שערי צבעים (לימוד)</span></label>
       <label class="tgl"><input type="checkbox" id="setShake"><span>רעידות מסך</span></label>
+      <label class="tgl"><input type="checkbox" id="setPickEachRun"><span>לבחור דמות לפני כל סיבוב</span></label>
     </div>
 
     <div class="parent-stats" id="parentStats"></div>

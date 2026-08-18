@@ -57,7 +57,7 @@ const DEFAULTS = {
   name: 'גפן',
   color: 'blue',
   character: 'fox',
-  unlocked: ['fox'],
+  pickEachRun: true,        // בורר דמות לפני כל סיבוב — גפן בוחר בעצמו
   stars: 0,
   sessionMinutes: 10,
   speed: 'normal',          // calm | normal | fast
