@@ -28,7 +28,7 @@
 <!-- ======================= היכרות ראשונה ======================= -->
 <div class="screen" id="scr-onboard">
   <div class="sheet">
-    <h1>שלום! 👋</h1>
+    <h1 id="onboardTitle">שלום! 👋</h1>
     <p class="lead">בואו נכין את המשחק. אפשר לשנות הכל אחר כך.</p>
 
     <label class="field">
@@ -64,6 +64,7 @@
   <div class="home-title">
     <div class="home-hello" id="homeHello">גפן</div>
     <div class="home-game">ווי סרפרס</div>
+    <button class="chip-switch" id="btnWho">👥 החלף שחקן</button>
   </div>
 
   <div class="hero-slot"><canvas id="heroCanvas"></canvas></div>
@@ -120,6 +121,15 @@
   </div>
 </div>
 
+<!-- ======================= מי משחק? (פרופילים) ======================= -->
+<div class="screen" id="scr-who">
+  <div class="sheet">
+    <h1>מי משחק?</h1>
+    <div class="who-grid" id="whoGrid"></div>
+    <button class="btn ghost" id="btnWhoAdd">➕ שחקן חדש</button>
+  </div>
+</div>
+
 <!-- ======================= מי רץ היום? ======================= -->
 <div class="screen" id="scr-pick">
   <div class="sheet wide">
@@ -139,6 +149,12 @@
   <div class="sheet wide">
     <h1>הגדרות הורים</h1>
 
+    <div class="field">
+      <span>שחקנים</span>
+      <div class="player-list" id="playerList"></div>
+      <button class="btn ghost slim" id="btnAddPlayer">➕ הוסף שחקן</button>
+    </div>
+
     <label class="field">
       <span>שם השחקן</span>
       <input id="setName" type="text" maxlength="12" autocomplete="off">
@@ -147,6 +163,11 @@
     <div class="field"><span>צבע אהוב</span><div class="swatches" id="setColor"></div></div>
     <div class="field"><span>אורך סשן</span><div class="chips" id="setTime"></div></div>
     <div class="field"><span>מהירות</span><div class="chips" id="setSpeed"></div></div>
+    <div class="field">
+      <span>איכות תצוגה</span>
+      <div class="chips" id="setQuality"></div>
+      <p class="hint">"מקסימלי" מצייר ברזולוציה המלאה של המסך. אם המכשיר מתחמם או מגמגם, המשחק מוריד רזולוציה לבד.</p>
+    </div>
 
     <div class="field toggles">
       <label class="tgl"><input type="checkbox" id="setSound"><span>צלילים</span></label>

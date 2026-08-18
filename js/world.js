@@ -174,6 +174,37 @@ export function drawGround(ctx, view, pal, scrollZ){
   ctx.closePath();
   ctx.fill();
 
+  // הבהרה עדינה במרכז הכביש — עומק
+  const roadLight = ctx.createLinearGradient(0, far.y, 0, near.y);
+  roadLight.addColorStop(0, 'rgba(255,255,255,.16)');
+  roadLight.addColorStop(1, 'rgba(0,0,0,.10)');
+  ctx.fillStyle = roadLight;
+  ctx.beginPath();
+  ctx.moveTo(view.cx - nearHW, near.y);
+  ctx.lineTo(view.cx + nearHW, near.y);
+  ctx.lineTo(view.cx + farHW,  far.y);
+  ctx.lineTo(view.cx - farHW,  far.y);
+  ctx.closePath(); ctx.fill();
+
+  // אבני שפה אדום־לבן
+  const KERB = 2.6;
+  for (const sd of [-1, 1]){
+    for (let k = 0; k < 30; k++){
+      let z0 = k * KERB - (scrollZ % (KERB * 2));
+      const z1 = z0 + KERB;
+      if (z1 <= 0.2) continue;
+      z0 = Math.max(z0, 0.2);
+      const a = project(view, z0, sd * ROAD_HW), b = project(view, z1, sd * ROAD_HW);
+      if (a.y - b.y < 0.6) break;
+      ctx.fillStyle = (k % 2) ? 'rgba(255,255,255,.85)' : 'rgba(232,90,110,.85)';
+      const wa = Math.max(1, 0.075 * a.s), wb = Math.max(0.5, 0.075 * b.s);
+      ctx.beginPath();
+      ctx.moveTo(a.x - wa, a.y); ctx.lineTo(a.x + wa, a.y);
+      ctx.lineTo(b.x + wb, b.y); ctx.lineTo(b.x - wb, b.y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
   // שוליים בהירים
   ctx.strokeStyle = 'rgba(255,255,255,.55)';
   ctx.lineWidth = Math.max(2, view.w * 0.006);
@@ -201,23 +232,72 @@ export function drawGround(ctx, view, pal, scrollZ){
   }
 }
 
-/* עצים ופנסים לצדדים */
+/* עצים, פנסים, סלעים ופרחים לצדדים */
 export function drawSideScenery(ctx, view, pal, scrollZ){
-  const SP = 7;
+  const SP = 3.5;
   const items = [];
-  for (let k = 0; k < 26; k++){
+  for (let k = 0; k < 60; k++){
     const z = k * SP - (scrollZ % SP);
-    if (z < 0.5 || z > Z_FAR * 0.7) continue;
-    items.push({ z, side: (k % 2 ? 1 : -1), kind: (k % 3 === 0) ? 'lamp' : 'tree', seed: k });
+    if (z < 0.5 || z > Z_FAR * 0.8) continue;
+    const seed = Math.abs(Math.floor((scrollZ / SP) + k));
+    const hash = (seed * 2654435761) % 4096;              // מפזר בלי מחזוריות נראית לעין
+    const side = (hash & 1) ? 1 : -1;
+    const kind = ['tree', 'flower', 'rock', 'shrub', 'lamp', 'flower', 'tree', 'shrub'][(hash >> 4) % 8];
+    items.push({ z, side, kind, seed: hash });
   }
   items.sort((a, b) => b.z - a.z);
+
   for (const it of items){
-    const wx = it.side * (ROAD_HW + 0.75 + (it.seed % 3) * 0.35);
+    const near = it.kind === 'flower' || it.kind === 'rock' || it.kind === 'shrub';
+    const spread = near ? 0.30 + (it.seed % 5) * 0.55 : 0.75 + (it.seed % 3) * 0.45;
+    const wx = it.side * (ROAD_HW + spread);
     const pr = project(view, it.z, wx);
     if (pr.s < 0.5) continue;
-    if (it.kind === 'tree') drawTree(ctx, pr.x, pr.y, pr.s, pal, it.seed);
-    else drawLamp(ctx, pr.x, pr.y, pr.s, pal);
+    switch (it.kind){
+      case 'tree':   drawTree(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
+      case 'lamp':   drawLamp(ctx, pr.x, pr.y, pr.s, pal); break;
+      case 'rock':   drawRock(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
+      case 'shrub':  drawShrub(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
+      case 'flower': drawFlower(ctx, pr.x, pr.y, pr.s, pal, it.seed); break;
+    }
   }
+}
+
+function drawRock(ctx, x, y, s, pal, seed){
+  const r = s * (0.10 + (seed % 3) * 0.035);
+  ctx.fillStyle = mixHex('#9aa3b8', '#2a2f4d', pal.night * 0.8);
+  ctx.beginPath();
+  ctx.ellipse(x, y - r * 0.4, r * 1.35, r, 0, Math.PI, 0);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.22)';
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.35, y - r * 0.62, r * 0.42, r * 0.24, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawShrub(ctx, x, y, s, pal, seed){
+  const r = s * (0.13 + (seed % 3) * 0.04);
+  ctx.fillStyle = mixHex(seed % 2 ? '#3cba6d' : '#2f9f5b', '#0f3a28', pal.night * 0.85);
+  for (const [dx, dy, k] of [[-0.9, 0, .8], [0.9, 0, .8], [0, -0.55, 1]]){
+    ctx.beginPath(); ctx.arc(x + dx * r, y - r * 0.35 + dy * r, r * k, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawFlower(ctx, x, y, s, pal, seed){
+  const r = s * 0.055;
+  if (r < 0.7) return;
+  const cols = ['#ff5d8f', '#ffc531', '#ffffff', '#9b5cff'];
+  const col = mixHex(cols[seed % cols.length], '#25406b', pal.night * 0.7);
+  ctx.strokeStyle = mixHex('#2f9f5b', '#10402c', pal.night);
+  ctx.lineWidth = Math.max(0.6, r * 0.35);
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - r * 2.2); ctx.stroke();
+  ctx.fillStyle = col;
+  for (let i = 0; i < 5; i++){
+    const a = i / 5 * Math.PI * 2 + seed;
+    ctx.beginPath(); ctx.arc(x + Math.cos(a) * r, y - r * 2.2 + Math.sin(a) * r, r * 0.78, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = mixHex('#ffd23f', '#7a5a20', pal.night);
+  ctx.beginPath(); ctx.arc(x, y - r * 2.2, r * 0.6, 0, Math.PI * 2); ctx.fill();
 }
 
 function drawTree(ctx, x, y, s, pal, seed){
@@ -262,10 +342,11 @@ export function drawShadow(ctx, x, y, s, alpha = 0.22){
   ctx.restore();
 }
 
-export function drawStarProp(ctx, x, y, s, spin){
+export function drawStarProp(ctx, x, y, s, spin, glow = true){
   ctx.save();
   ctx.translate(x, y - s * 0.55);
   ctx.rotate(spin);
+  if (glow && s > 14){ ctx.shadowColor = 'rgba(255,197,49,.9)'; ctx.shadowBlur = s * 0.30; }
   const R = s * 0.24, r = R * 0.47;
   ctx.beginPath();
   for (let i = 0; i < 10; i++){
@@ -279,9 +360,10 @@ export function drawStarProp(ctx, x, y, s, spin){
   ctx.restore();
 }
 
-export function drawGemProp(ctx, x, y, s, spin){
+export function drawGemProp(ctx, x, y, s, spin, glow = true){
   ctx.save();
   ctx.translate(x, y - s * 0.6);
+  if (glow && s > 14){ ctx.shadowColor = 'rgba(90,215,255,.95)'; ctx.shadowBlur = s * 0.34; }
   const sx = Math.cos(spin) * 0.55 + 0.45;
   ctx.scale(sx, 1);
   const R = s * 0.22;
@@ -423,4 +505,61 @@ export function drawTreehouse(ctx, view, z){
   ctx.fillRect(x - s * 0.14, y - s * 1.80, s * 0.28, s * 0.28);
   ctx.strokeStyle = '#8a5a34'; ctx.lineWidth = Math.max(1, s * 0.03);
   ctx.strokeRect(x - s * 0.14, y - s * 1.80, s * 0.28, s * 0.28);
+}
+
+
+/* ============================================================
+   שכבות איכות: ערפל מרחק, ויניה וקווי מהירות
+   ============================================================ */
+
+/** אובך שמרכך את הרקע הרחוק — מוסיף עומק אמיתי לתמונה */
+export function drawFog(ctx, view, pal){
+  const top = view.horizonY - 2;
+  const bottom = view.horizonY + (view.h - view.horizonY) * 0.26;
+  const g = ctx.createLinearGradient(0, top, 0, bottom);
+  g.addColorStop(0, pal.low);
+  g.addColorStop(0.12, pal.low);
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.save();
+  ctx.globalAlpha = 0.40;
+  ctx.fillStyle = g;
+  ctx.fillRect(0, top, view.w, bottom - top);
+  ctx.restore();
+}
+
+let vignetteCache = null;
+export function drawVignette(ctx, view){
+  if (!vignetteCache || vignetteCache.w !== view.w || vignetteCache.h !== view.h){
+    const g = ctx.createRadialGradient(
+      view.w / 2, view.h * 0.52, Math.min(view.w, view.h) * 0.34,
+      view.w / 2, view.h * 0.52, Math.max(view.w, view.h) * 0.78);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(8,14,34,0.34)');
+    vignetteCache = { w: view.w, h: view.h, g };
+  }
+  ctx.fillStyle = vignetteCache.g;
+  ctx.fillRect(0, 0, view.w, view.h);
+}
+
+/** פסי מהירות עדינים בשולי המסך כשרצים מהר */
+export function drawSpeedLines(ctx, view, intensity, t){
+  if (intensity <= 0.01) return;
+  ctx.save();
+  ctx.globalAlpha = intensity * 0.28;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 10; i++){
+    const seed = (i * 7919) % 1000 / 1000;
+    const side = i % 2 ? 1 : -1;
+    const prog = ((t * (1.1 + seed * 0.9) + seed) % 1);
+    const x = view.cx + side * view.w * (0.30 + seed * 0.22 + prog * 0.28);
+    const y = view.horizonY + (view.h - view.horizonY) * (0.15 + prog * 0.95);
+    const len = view.h * 0.05 * (0.4 + prog);
+    ctx.lineWidth = 1.5 + prog * 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y - len);
+    ctx.lineTo(x, y + len);
+    ctx.stroke();
+  }
+  ctx.restore();
 }

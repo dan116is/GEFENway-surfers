@@ -1,12 +1,16 @@
 /* חיבור הממשק למשחק: מסכים, הגדרות, חנות דמויות, אפקטים */
 
-import { $, save, persist, resetSave, COLORS, colorById, SPEEDS, clamp, pick, buzz } from './util.js';
+import {
+  $, save, store, persist, resetSave, hasProfiles,
+  setActiveProfile, addProfile, removeProfile,
+  COLORS, colorById, SPEEDS, QUALITY, clamp, pick, buzz,
+} from './util.js';
 import { unlockAudio, sfx, say, hushVoice } from './audio.js';
 import { CHARACTERS, charById, paintPreview } from './characters.js';
 import { Game } from './game.js';
 
 /* ---------------- מסכים ---------------- */
-const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'pick', 'parent'];
+const SCREENS = ['boot', 'onboard', 'home', 'pause', 'end', 'pick', 'who', 'parent'];
 function show(name){
   SCREENS.forEach(s => $('#scr-' + s)?.classList.toggle('show', s === name));
   const inGame = name === null;
@@ -61,6 +65,7 @@ const TIME_OPTIONS = [
   { value: 999, label: 'בלי הגבלה' },
 ];
 const SPEED_OPTIONS = Object.keys(SPEEDS).map(k => ({ value: k, label: SPEEDS[k].label }));
+const QUALITY_OPTIONS = Object.keys(QUALITY).map(k => ({ value: k, label: QUALITY[k].label }));
 
 /* ---------------- אפקטים ---------------- */
 const fx = $('#fx');
@@ -118,9 +123,64 @@ function refreshHome(){
 }
 
 function goHome(){
+  stopWho();
+  stopPick();
   show('home');
   refreshHome();
   startHero();
+}
+
+/* ---------------- מי משחק? (פרופילים) ---------------- */
+const whoPreviews = [];
+let whoRaf = 0, whoT = 0;
+
+function whoLoop(){
+  whoRaf = requestAnimationFrame(whoLoop);
+  whoT += 0.016;
+  whoPreviews.forEach((pv, i) => paintPreview(pv.cv, pv.char, pv.color, whoT + i * 0.4, 'run'));
+}
+function stopWho(){ cancelAnimationFrame(whoRaf); whoRaf = 0; }
+
+function buildWho(){
+  const grid = $('#whoGrid');
+  grid.innerHTML = '';
+  whoPreviews.length = 0;
+
+  store.profiles.forEach(p => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'who-card';
+    card.setAttribute('aria-current', String(p.id === store.activeId));
+    card.setAttribute('aria-label', p.name);
+
+    const cv = document.createElement('canvas');
+    const nm = document.createElement('div');
+    nm.className = 'nm';
+    nm.textContent = p.name;
+    const st = document.createElement('div');
+    st.className = 'st';
+    st.textContent = `${p.stars} ⭐`;
+    card.append(cv, nm, st);
+
+    card.onclick = () => {
+      setActiveProfile(p.id);
+      sfx.fanfare();
+      stopWho();
+      goHome();
+      say(`שלום ${p.name}`, { force: true });
+    };
+
+    grid.appendChild(card);
+    whoPreviews.push({ cv, char: p.character, color: colorById(p.color).hex });
+  });
+}
+
+function openWho(){
+  stopHero();
+  buildWho();
+  show('who');
+  whoT = 0;
+  if (!whoRaf) whoLoop();
 }
 
 /* ---------------- בורר הדמויות ---------------- */
@@ -193,7 +253,42 @@ function openPick(){
 }
 
 /* ---------------- הגדרות הורים ---------------- */
+function buildPlayerList(){
+  const host = $('#playerList');
+  host.innerHTML = '';
+  store.profiles.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'player-row' + (p.id === store.activeId ? ' active' : '');
+    const nm = document.createElement('div');
+    nm.className = 'nm';
+    nm.textContent = p.name;
+    const st = document.createElement('div');
+    st.className = 'st';
+    st.textContent = `${p.stars} ⭐ · ${p.totals.runs} סבבים`;
+    row.append(nm, st);
+    if (store.profiles.length > 1){
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = 'מחק';
+      del.onclick = () => {
+        if (!confirm(`למחוק את ${p.name} ואת כל ההתקדמות שלו?`)) return;
+        removeProfile(p.id);
+        openParent();
+        refreshHome();
+      };
+      row.appendChild(del);
+    }
+    host.appendChild(row);
+  });
+}
+
 function openParent(){
+  buildPlayerList();
+  buildChips($('#setQuality'), QUALITY_OPTIONS, store.quality, v => {
+    store.quality = v;
+    persist();
+    Game.resize();
+  });
   $('#setName').value = save.name;
   buildSwatches($('#setColor'), save.color, id => { save.color = id; persist(); });
   buildChips($('#setTime'), TIME_OPTIONS, save.sessionMinutes, v => { save.sessionMinutes = v; persist(); });
@@ -257,6 +352,21 @@ function showEnd(res){
   say(`${save.name || 'גפן'}, אספת ${res.stars} כוכבים. כל הכבוד!`, { force: true });
 }
 
+/* ---------------- מסך היכרות (שחקן ראשון או נוסף) ---------------- */
+let onboardDraft = { name: 'גפן', color: 'blue' , sessionMinutes: 10 };
+
+function openOnboard(mode){
+  onboardDraft = mode === 'add'
+    ? { name: '', color: pick(COLORS).id, sessionMinutes: 10 }
+    : { name: 'גפן', color: 'blue', sessionMinutes: 10 };
+
+  $('#onboardTitle').textContent = mode === 'add' ? 'שחקן חדש 👋' : 'שלום! 👋';
+  $('#inpName').value = onboardDraft.name;
+  buildSwatches($('#colorPick'), onboardDraft.color, id => { onboardDraft.color = id; });
+  buildChips($('#timePick'), TIME_OPTIONS, onboardDraft.sessionMinutes, v => { onboardDraft.sessionMinutes = v; });
+  show('onboard');
+}
+
 /* ---------------- התחלה ---------------- */
 let coachTimers = [];
 function coach(){
@@ -275,6 +385,7 @@ function startRun(){
   hushVoice();
   stopHero();
   stopPick();
+  stopWho();
   show(null);
   $('#runStars').textContent = '0';
   $('#trackFill').style.width = '0%';
@@ -283,19 +394,24 @@ function startRun(){
 }
 
 function wire(){
-  /* היכרות ראשונה */
-  buildSwatches($('#colorPick'), save.color, id => { save.color = id; });
-  buildChips($('#timePick'), TIME_OPTIONS, save.sessionMinutes, v => { save.sessionMinutes = v; });
+  /* מסך ההיכרות נבנה ב-openOnboard */
   $('#btnOnboardDone').onclick = () => {
-    save.name = ($('#inpName').value || 'גפן').trim().slice(0, 12) || 'גפן';
-    save.onboarded = true;
-    persist();
+    addProfile({
+      name: $('#inpName').value,
+      color: onboardDraft.color,
+      character: pick(CHARACTERS).id,
+      sessionMinutes: onboardDraft.sessionMinutes,
+    });
     sfx.fanfare();
+    confetti(24);
     goHome();
   };
 
   /* בית */
   $('#btnPlay').onclick = () => { save.pickEachRun ? openPick() : startRun(); };
+  $('#btnWho').onclick = () => openWho();
+  $('#btnWhoAdd').onclick = () => { stopWho(); openOnboard('add'); };
+  $('#btnAddPlayer').onclick = () => openOnboard('add');
   $('#btnPickGo').onclick = () => { stopPick(); startRun(); };
   $('#btnPickBack').onclick = () => { stopPick(); goHome(); };
   wireHoldToOpen();
@@ -323,7 +439,7 @@ function wire(){
     goHome();
   };
   $('#btnReset').onclick = () => {
-    if (!confirm('לאפס את כל ההתקדמות, הכוכבים והדמויות?')) return;
+    if (!confirm('לאפס את כל השחקנים, ההתקדמות והכוכבים?')) return;
     resetSave();
     location.reload();
   };
@@ -355,8 +471,9 @@ function boot(){
   });
 
   setTimeout(() => {
-    if (save.onboarded) goHome();
-    else show('onboard');
+    if (!hasProfiles()) openOnboard('first');
+    else if (store.profiles.length > 1) openWho();
+    else goHome();
   }, 650);
 }
 

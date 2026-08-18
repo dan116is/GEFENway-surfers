@@ -50,14 +50,16 @@ export const COLORS = [
 ];
 export const colorById = id => COLORS.find(c => c.id === id) || COLORS[4];
 
-/* ---------- מצב שמור ---------- */
-const KEY = 'gefenway.save.v1';
+/* ---------- מצב שמור: מסמך אחד עם כמה פרופילים ---------- */
+const KEY    = 'gefenway.save.v2';
+const LEGACY = 'gefenway.save.v1';
 
-const DEFAULTS = {
+const PROFILE_DEFAULTS = {
+  id: '',
   name: 'גפן',
   color: 'blue',
   character: 'fox',
-  pickEachRun: true,        // בורר דמות לפני כל סיבוב — גפן בוחר בעצמו
+  pickEachRun: true,        // בורר דמות לפני כל סיבוב
   stars: 0,
   sessionMinutes: 10,
   speed: 'normal',          // calm | normal | fast
@@ -65,9 +67,15 @@ const DEFAULTS = {
   voice: true,
   gates: true,
   shake: true,
-  onboarded: false,
   totals: { runs: 0, stars: 0, meters: 0, gates: 0, seconds: 0 },
   bestMeters: 0,
+};
+
+const ROOT_DEFAULTS = {
+  version: 2,
+  activeId: '',
+  quality: 'high',          // normal | high | ultra
+  profiles: [],
 };
 
 function deepMerge(base, over){
@@ -83,29 +91,102 @@ function deepMerge(base, over){
   return out;
 }
 
-export const save = load();
+const newId = () => 'p' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+
+function readJSON(key){
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
 
 function load(){
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return deepMerge(DEFAULTS, {});
-    return deepMerge(DEFAULTS, JSON.parse(raw));
-  } catch {
-    return deepMerge(DEFAULTS, {});
+  const v2 = readJSON(KEY);
+  if (v2 && Array.isArray(v2.profiles)){
+    const root = deepMerge(ROOT_DEFAULTS, v2);
+    root.profiles = v2.profiles.map(p => deepMerge(PROFILE_DEFAULTS, p));
+    return root;
   }
+
+  // הגירה מהגרסה עם שחקן יחיד
+  const v1 = readJSON(LEGACY);
+  const root = deepMerge(ROOT_DEFAULTS, {});
+  if (v1){
+    const p = deepMerge(PROFILE_DEFAULTS, v1);
+    p.id = newId();
+    root.profiles = [p];
+    root.activeId = p.id;
+  }
+  return root;
 }
+
+export const store = load();
+
+/** לפני שנוצר פרופיל ראשון עובדים על טיוטה מנותקת, כדי ש-save לעולם לא יהיה null */
+const draftProfile = () => deepMerge(PROFILE_DEFAULTS, { id: '' });
+
+/** הפרופיל הפעיל. binding חי — מתעדכן בכל המודולים כשמחליפים שחקן. */
+export let save = store.profiles.find(p => p.id === store.activeId) || store.profiles[0] || draftProfile();
+
+export const hasProfiles = () => store.profiles.length > 0;
 
 let flushTimer = 0;
 export function persist(){
   clearTimeout(flushTimer);
   flushTimer = setTimeout(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* מצב פרטי — מתעלמים */ }
+    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { /* מצב פרטי — מתעלמים */ }
   }, 120);
 }
 
-export function resetSave(){
-  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+export function setActiveProfile(id){
+  const p = store.profiles.find(x => x.id === id);
+  if (!p) return false;
+  store.activeId = id;
+  save = p;
+  persist();
+  return true;
 }
+
+export function addProfile({ name, color, character, sessionMinutes, speed }){
+  const p = deepMerge(PROFILE_DEFAULTS, {
+    id: newId(),
+    name: (name || 'שחקן').trim().slice(0, 12) || 'שחקן',
+    color: color || 'blue',
+    character: character || 'fox',
+    sessionMinutes: sessionMinutes || PROFILE_DEFAULTS.sessionMinutes,
+    speed: speed || PROFILE_DEFAULTS.speed,
+  });
+  store.profiles.push(p);
+  store.activeId = p.id;
+  save = p;
+  persist();
+  return p;
+}
+
+export function removeProfile(id){
+  const i = store.profiles.findIndex(p => p.id === id);
+  if (i < 0) return;
+  store.profiles.splice(i, 1);
+  if (store.activeId === id){
+    const next = store.profiles[0] || null;
+    store.activeId = next ? next.id : '';
+    save = next || draftProfile();
+  }
+  persist();
+}
+
+export function resetSave(){
+  try { localStorage.removeItem(KEY); localStorage.removeItem(LEGACY); } catch { /* ignore */ }
+}
+
+/* ---------- איכות תצוגה ---------- */
+export const QUALITY = {
+  // dprCap — עד כמה מותר להתקרב לרזולוציה הפיזית של המסך
+  // ss     — דגימת־על: מציירים מעל הרזולוציה הפיזית ומקטינים, כדי לקבל קצוות חלקים
+  normal: { dprCap: 2, ss: 1.0,  label: 'רגיל'    },
+  high:   { dprCap: 3, ss: 1.0,  label: 'גבוה'    },
+  ultra:  { dprCap: 3, ss: 1.35, label: 'מקסימלי' },
+};
 
 /* ---------- פרופילי מהירות (עדינים — מותאם לגיל 4) ---------- */
 export const SPEEDS = {

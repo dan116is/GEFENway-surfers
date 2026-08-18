@@ -186,6 +186,34 @@ input[type=text]:focus{outline:none;border-color:var(--grape);background:#fff}
 .unlock{margin-top:14px;font-size:19px;color:var(--leaf);min-height:0}
 .unlock:not(:empty){padding:14px;background:#eafff2;border-radius:18px}
 
+/* ---------- פרופילים ---------- */
+.chip-switch{
+  -webkit-appearance:none;appearance:none;border:0;cursor:pointer;
+  margin-top:12px;padding:9px 16px;border-radius:999px;
+  background:rgba(255,255,255,.85);color:var(--ink);
+  font:inherit;font-size:15px;font-weight:800;
+  box-shadow:0 3px 0 rgba(13,27,62,.16)}
+.chip-switch:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(13,27,62,.16)}
+
+.who-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px}
+.who-card{
+  -webkit-appearance:none;appearance:none;border:4px solid #eef1fa;cursor:pointer;
+  background:#f7f9ff;border-radius:24px;padding:12px 6px 14px;font:inherit;text-align:center}
+.who-card[aria-current=true]{border-color:var(--grape);background:#fff}
+.who-card canvas{width:100%;height:96px;display:block}
+.who-card .nm{font-size:20px;color:var(--ink);margin-top:4px}
+.who-card .st{font-size:14px;color:var(--ink-soft);font-weight:700}
+
+.player-list{display:grid;gap:8px;margin-bottom:10px}
+.player-row{display:flex;align-items:center;gap:10px;background:#f7f9ff;border-radius:16px;padding:10px 14px}
+.player-row .nm{flex:1;text-align:start;font-size:18px;color:var(--ink)}
+.player-row .st{font-size:14px;color:var(--ink-soft);font-weight:700}
+.player-row.active{outline:3px solid var(--grape)}
+.player-row button{
+  -webkit-appearance:none;appearance:none;border:0;cursor:pointer;background:#ffe6ec;color:#c02c4d;
+  font:inherit;font-size:15px;font-weight:800;border-radius:12px;padding:8px 12px}
+.btn.slim{min-height:54px;font-size:18px}
+
 /* ---------- בורר הדמויות ---------- */
 .pick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
 .pick-card{

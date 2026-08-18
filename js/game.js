@@ -1,7 +1,7 @@
 /* ליבת המשחק — לולאה, שליטה, יצירת מסלול, התנגשויות.
    עיקרון מנחה: אין הפסד ואין "Game Over". פגיעה = מעידה קטנה וממשיכים. */
 
-import { clamp, lerp, rand, randInt, pick, save, SPEEDS, buzz, COLORS, colorById } from './util.js';
+import { clamp, lerp, rand, randInt, pick, save, store, SPEEDS, QUALITY, buzz, COLORS, colorById } from './util.js';
 import { sfx, say } from './audio.js';
 import { drawCharacter } from './characters.js';
 import {
@@ -9,6 +9,7 @@ import {
   skyPalette, drawSky, drawGround, drawSideScenery,
   drawShadow, drawStarProp, drawGemProp, drawBush, drawCrate, drawBar,
   drawMagnet, drawShieldProp, drawGate, drawTreehouse,
+  drawFog, drawVignette, drawSpeedLines,
 } from './world.js';
 
 const Z_SPAWN   = 78;    // מרחק היצירה
@@ -20,15 +21,19 @@ const SLIDE_T   = 0.62;
 const STUMBLE_T = 1.15;
 
 export const Game = {
-  canvas: null, ctx: null, view: null, dpr: 1,
+  canvas: null, ctx: null, view: null, dpr: 1, autoScale: 1, fpsAcc: 0, fpsFrames: 0, fpsWarmup: 0,
   state: 'idle',            // idle | play | paused | ending | done
   hooks: {},
 
   /* --------- אתחול --------- */
   init(canvas, hooks){
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     this.hooks = hooks || {};
+    this.autoScale = 1;
+    this.fpsAcc = 0;
+    this.fpsFrames = 0;
+    this.fpsWarmup = 0;
     this.resize();
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
@@ -43,13 +48,34 @@ export const Game = {
 
   resize(){
     const w = window.innerWidth, h = window.innerHeight;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const q = QUALITY[store.quality] || QUALITY.high;
+    this.dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, q.dprCap) * q.ss * this.autoScale);
     this.canvas.width  = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
     this.canvas.style.width = w + 'px';
     this.canvas.style.height = h + 'px';
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'high';
     this.view = makeView(w, h);
     this.idleDirty = true;
+  },
+
+  /** אם המכשיר מתקשה, מורידים רזולוציה בשקט במקום לגמגם.
+      מתעלמים מהשניות הראשונות — שם תמיד יש גמגום התחלתי. */
+  watchFrameRate(dt){
+    this.fpsWarmup += dt;
+    if (this.fpsWarmup < 3) return;
+    this.fpsAcc += dt; this.fpsFrames++;
+    if (this.fpsAcc < 2.5) return;
+    const fps = this.fpsFrames / this.fpsAcc;
+    this.fpsAcc = 0; this.fpsFrames = 0;
+    if (fps < 40 && this.autoScale > 0.6){
+      this.autoScale = Math.max(0.6, this.autoScale - 0.15);
+      this.resize();
+    } else if (fps > 58 && this.autoScale < 1){
+      this.autoScale = Math.min(1, this.autoScale + 0.1);
+      this.resize();
+    }
   },
 
   /* --------- קלט --------- */
@@ -112,7 +138,16 @@ export const Game = {
 
   jump(){
     if (this.state !== 'play') return;
-    if (this.p.y > 0.01 || this.p.slide > 0) return;
+    if (this.p.y > 0.01 || this.p.slide > 0){
+      this.p.jumpBuffer = 0.18;   // נזכור את הלחיצה לרגע — הרגשה סלחנית
+      return;
+    }
+    this.liftOff();
+  },
+
+  liftOff(){
+    this.p.jumpBuffer = 0;
+    this.p.slide = 0;
     this.p.vy = JUMP_V;
     sfx.jump();
     buzz(12);
@@ -129,7 +164,7 @@ export const Game = {
   /* --------- ניהול ריצה --------- */
   resetRun(){
     const prof = SPEEDS[save.speed] || SPEEDS.normal;
-    this.p = { lane: 1, laneVis: 1, y: 0, vy: 0, slide: 0, stumble: 0, invuln: 0, shield: 0, magnet: 0 };
+    this.p = { lane: 1, laneVis: 1, y: 0, vy: 0, slide: 0, stumble: 0, invuln: 0, shield: 0, magnet: 0, jumpBuffer: 0 };
     this.speed = prof.start;
     this.prof = prof;
     this.scrollZ = 0;
@@ -273,6 +308,7 @@ export const Game = {
     if (this.state === 'paused') { this.render(0); return; }
     this.update(dt);
     this.render(dt);
+    this.watchFrameRate(dt);
   },
 
   update(dt){
@@ -295,7 +331,7 @@ export const Game = {
     this.meters += move * 1.1;
 
     // טיימרים
-    for (const k of ['slide', 'stumble', 'invuln', 'shield', 'magnet']){
+    for (const k of ['slide', 'stumble', 'invuln', 'shield', 'magnet', 'jumpBuffer']){
       if (this.p[k] > 0) this.p[k] = Math.max(0, this.p[k] - dt);
     }
     this.shake = Math.max(0, this.shake - dt * 3.2);
@@ -304,9 +340,15 @@ export const Game = {
     if (this.p.vy !== 0 || this.p.y > 0){
       this.p.vy -= GRAVITY * dt;
       this.p.y += this.p.vy * dt;
-      if (this.p.y <= 0){ this.p.y = 0; if (this.p.vy < -1) sfx.land(); this.p.vy = 0; }
+      if (this.p.y <= 0){
+        this.p.y = 0;
+        if (this.p.vy < -1) sfx.land();
+        this.p.vy = 0;
+        if (this.p.jumpBuffer > 0) this.liftOff();
+      }
     }
-    this.p.laneVis = lerp(this.p.laneVis, this.p.lane, Math.min(1, dt * 14));
+    this.p.laneVis = lerp(this.p.laneVis, this.p.lane, Math.min(1, dt * 16));
+    if (this.p.slide <= 0 && this.p.jumpBuffer > 0 && this.p.y <= 0) this.liftOff();
 
     // יצירת מסלול
     if (this.state === 'play'){
@@ -330,8 +372,8 @@ export const Game = {
       if (e.spin !== undefined) e.spin += dt * 3.4;
 
       // מגנט מושך כוכבים
-      if (this.p.magnet > 0 && (e.kind === 'star' || e.kind === 'gem') && !e.taken
-          && e.z > PLAYER_Z - 1 && e.z < PLAYER_Z + 14){
+      if (this.p.magnet > 0 && (e.kind === 'star' || e.kind === 'gem' || e.kind === 'shield' || e.kind === 'magnet')
+          && !e.taken && e.z > PLAYER_Z - 1 && e.z < PLAYER_Z + 16){
         e.pull = (e.pull ?? laneX(e.lane));
         e.pull = lerp(e.pull, px, Math.min(1, dt * 4));
         e.y = lerp(e.y ?? 0.35, this.p.y + 0.4, Math.min(1, dt * 3));
@@ -371,7 +413,7 @@ export const Game = {
       if (e.kind === 'star' || e.kind === 'gem' || e.kind === 'magnet' || e.kind === 'shield'){
         const dx = Math.abs((e.pull ?? laneX(e.lane)) - px);
         const dy = Math.abs((e.y ?? 0.35) - (this.p.y + 0.4));
-        if (dx < 0.55 && dy < 0.75) this.collect(e);
+        if (dx < 0.68 && dy < 0.85) this.collect(e);
         continue;
       }
 
@@ -515,7 +557,11 @@ export const Game = {
     for (const e of sorted){
       if (e.z > Z_FAR || e.z < -4) continue;
 
-      if (!playerDrawn.done && e.z < PLAYER_Z){ this.drawPlayer(ctx, pal); playerDrawn.done = true; }
+      if (!playerDrawn.done && e.z < PLAYER_Z){
+        drawFog(ctx, view, pal);
+        this.drawPlayer(ctx, pal);
+        playerDrawn.done = true;
+      }
 
       if (e.kind === 'gate'){
         drawGate(ctx, view, e.z, e.colors, e.resolved ? -1 : e.target, this.runT);
@@ -537,7 +583,7 @@ export const Game = {
         case 'bar':    drawBar(ctx, pr.x, pr.y, pr.s); break;
       }
     }
-    if (!playerDrawn.done) this.drawPlayer(ctx, pal);
+    if (!playerDrawn.done){ drawFog(ctx, view, pal); this.drawPlayer(ctx, pal); }
 
     // חלקיקים
     for (const pt of this.parts){
@@ -553,11 +599,17 @@ export const Game = {
       ctx.fillRect(-20, -20, view.w + 40, view.h + 40);
     }
 
+    // פסי מהירות
+    const spd = (this.speed - this.prof.start) / Math.max(0.1, this.prof.max - this.prof.start);
+    drawSpeedLines(ctx, view, clamp(spd - 0.25, 0, 1) * (this.state === 'play' ? 1 : 0), this.runT);
+
     // שכבת ערב עדינה
     if (pal.night > 0.03){
       ctx.fillStyle = `rgba(12,18,48,${pal.night * 0.28})`;
       ctx.fillRect(-20, -20, view.w + 40, view.h + 40);
     }
+
+    drawVignette(ctx, view);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   },
